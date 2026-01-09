@@ -48,7 +48,7 @@ export async function classifyImage(imageBase64: string): Promise<ImageType> {
 
   try {
     const response = await client.chat.completions.create({
-      model: 'gpt-4o',
+      model: 'gpt-5',
       messages: [
         {
           role: 'user',
@@ -138,7 +138,7 @@ export async function extractForecast(
     const prompt = FORECAST_EXTRACTION_PROMPT.replace(/{type}/g, type);
 
     const response = await client.chat.completions.create({
-      model: 'gpt-4o',
+      model: 'gpt-5',
       messages: [
         {
           role: 'user',
@@ -302,7 +302,7 @@ export async function extractLoan(
 
   try {
     const response = await client.chat.completions.create({
-      model: 'gpt-4o',
+      model: 'gpt-5',
       messages: [
         {
           role: 'user',

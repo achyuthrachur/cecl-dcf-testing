@@ -10,7 +10,7 @@ A web application for Current Expected Credit Loss (CECL) Discounted Cash Flow (
 ## Features
 
 - **Two-Stage Workflow**: Segment Setup → Loan Processing
-- **AI-Powered Extraction**: Uses OpenAI GPT-4 Vision to extract data from screenshots
+- **AI-Powered Extraction**: Uses OpenAI GPT-5 to extract data from screenshots
   - PD (Probability of Default) forecast tables
   - LGD (Loss Given Default) forecast tables
   - Loan summary/detail screens
@@ -33,7 +33,7 @@ A web application for Current Expected Credit Loss (CECL) Discounted Cash Flow (
 - **Language**: TypeScript
 - **Styling**: Tailwind CSS
 - **State Management**: Zustand with persistence
-- **AI**: OpenAI GPT-4 Vision API
+- **AI**: OpenAI GPT-5 API
 - **Excel Generation**: ExcelJS
 - **Deployment**: Vercel
 
@@ -56,7 +56,7 @@ A web application for Current Expected Credit Loss (CECL) Discounted Cash Flow (
 
 4. **Configure Environment Variables**:
    - Add `OPENAI_API_KEY` with your OpenAI API key
-   - (The key must have access to GPT-4 Vision / gpt-4o model)
+   - (The key must have access to GPT-5 / gpt-5 model)
 
 5. **Deploy**:
    - Click "Deploy"
@@ -68,7 +68,7 @@ A web application for Current Expected Credit Loss (CECL) Discounted Cash Flow (
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `OPENAI_API_KEY` | Yes | OpenAI API key with GPT-4 Vision access |
+| `OPENAI_API_KEY` | Yes | OpenAI API key with GPT-5 access |
 
 ## Local Development
 
