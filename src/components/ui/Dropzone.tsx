@@ -1,9 +1,9 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useState, useEffect, useRef } from 'react';
 import { useDropzone, FileRejection } from 'react-dropzone';
 import { cn } from '@/lib/utils';
-import { Upload, Image as ImageIcon, X, AlertCircle } from 'lucide-react';
+import { Upload, Image as ImageIcon, X, AlertCircle, Clipboard } from 'lucide-react';
 
 interface DropzoneProps {
   onFileAccepted: (file: File) => void;
@@ -75,6 +75,71 @@ export function Dropzone({
     onFileRemoved?.();
   }, [previewUrl, onFileRemoved]);
 
+  const dropzoneRef = useRef<HTMLDivElement>(null);
+
+  const handlePaste = useCallback(
+    (event: ClipboardEvent) => {
+      if (disabled || file) return;
+
+      const items = event.clipboardData?.items;
+      if (!items) return;
+
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (item.type.startsWith('image/')) {
+          event.preventDefault();
+          const pastedFile = item.getAsFile();
+          if (pastedFile) {
+            // Validate file size
+            if (pastedFile.size > maxSize) {
+              setError(`File is too large. Maximum size is ${maxSize / 1024 / 1024}MB`);
+              return;
+            }
+
+            // Create a new file with a proper name for pasted images
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const extension = pastedFile.type.split('/')[1] || 'png';
+            const namedFile = new File(
+              [pastedFile],
+              `pasted-image-${timestamp}.${extension}`,
+              { type: pastedFile.type }
+            );
+
+            setFile(namedFile);
+            setError(null);
+
+            if (preview) {
+              const url = URL.createObjectURL(namedFile);
+              setPreviewUrl(url);
+            }
+
+            onFileAccepted(namedFile);
+          }
+          return;
+        }
+      }
+    },
+    [disabled, file, maxSize, preview, onFileAccepted]
+  );
+
+  // Listen for paste events when the dropzone is focused or globally when no file is present
+  useEffect(() => {
+    const handleGlobalPaste = (event: ClipboardEvent) => {
+      // Only handle paste if the dropzone area is focused or hovered
+      const activeElement = document.activeElement;
+      const dropzoneElement = dropzoneRef.current;
+
+      if (dropzoneElement?.contains(activeElement) || dropzoneElement?.matches(':hover')) {
+        handlePaste(event);
+      }
+    };
+
+    document.addEventListener('paste', handleGlobalPaste);
+    return () => {
+      document.removeEventListener('paste', handleGlobalPaste);
+    };
+  }, [handlePaste]);
+
   const { getRootProps, getInputProps, isDragActive, isDragReject } =
     useDropzone({
       onDrop,
@@ -85,7 +150,7 @@ export function Dropzone({
     });
 
   return (
-    <div className={cn('w-full', className)}>
+    <div className={cn('w-full', className)} ref={dropzoneRef} tabIndex={0}>
       {!file ? (
         <div
           {...getRootProps()}
@@ -134,6 +199,13 @@ export function Dropzone({
           <p className="text-xs text-slate-500">
             {isDragActive ? 'Release to upload' : hint}
           </p>
+
+          {!isDragActive && (
+            <p className="text-xs text-slate-400 mt-2 flex items-center gap-1">
+              <Clipboard className="w-3 h-3" />
+              Or paste from clipboard (Ctrl+V)
+            </p>
+          )}
         </div>
       ) : (
         <div className="relative border-2 border-slate-200 rounded-xl overflow-hidden bg-white">
