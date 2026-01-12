@@ -132,74 +132,82 @@ export function Dropzone({
     });
 
   return (
-    <div
-      className={cn('w-full outline-none', className)}
-      ref={containerRef}
-      tabIndex={0}
-      onPaste={handlePaste}
-      onFocus={() => setIsFocused(true)}
-      onBlur={() => setIsFocused(false)}
-    >
+    <div className={cn('w-full', className)} ref={containerRef}>
       {!file ? (
-        <div
-          {...getRootProps()}
-          className={cn(
-            'relative border-2 border-dashed rounded-xl p-8 transition-all duration-200 cursor-pointer',
-            'flex flex-col items-center justify-center text-center',
-            isDragActive && !isDragReject && 'border-primary-500 bg-primary-50',
-            isDragReject && 'border-danger-500 bg-danger-50',
-            isFocused && !isDragActive && 'border-primary-400 bg-primary-50 ring-2 ring-primary-200',
-            !isDragActive &&
-              !isDragReject &&
-              !isFocused &&
-              'border-slate-300 hover:border-primary-400 hover:bg-slate-50',
-            disabled && 'opacity-50 cursor-not-allowed',
-            error && 'border-danger-300 bg-danger-50'
-          )}
-        >
-          <input {...getInputProps()} />
-
+        <div className="space-y-2">
+          {/* Drag & Drop / Click to browse area */}
           <div
+            {...getRootProps()}
             className={cn(
-              'w-14 h-14 rounded-full flex items-center justify-center mb-4',
-              isDragActive && !isDragReject && 'bg-primary-100',
-              isDragReject && 'bg-danger-100',
-              !isDragActive && !isDragReject && 'bg-slate-100'
+              'relative border-2 border-dashed rounded-xl p-6 transition-all duration-200 cursor-pointer',
+              'flex flex-col items-center justify-center text-center',
+              isDragActive && !isDragReject && 'border-primary-500 bg-primary-50',
+              isDragReject && 'border-danger-500 bg-danger-50',
+              !isDragActive &&
+                !isDragReject &&
+                'border-slate-300 hover:border-primary-400 hover:bg-slate-50',
+              disabled && 'opacity-50 cursor-not-allowed',
+              error && 'border-danger-300 bg-danger-50'
             )}
           >
-            {isDragReject ? (
-              <AlertCircle className="w-7 h-7 text-danger-500" />
-            ) : (
-              <Upload
-                className={cn(
-                  'w-7 h-7',
-                  isDragActive ? 'text-primary-500' : 'text-slate-400'
-                )}
-              />
-            )}
+            <input {...getInputProps()} />
+
+            <div
+              className={cn(
+                'w-12 h-12 rounded-full flex items-center justify-center mb-3',
+                isDragActive && !isDragReject && 'bg-primary-100',
+                isDragReject && 'bg-danger-100',
+                !isDragActive && !isDragReject && 'bg-slate-100'
+              )}
+            >
+              {isDragReject ? (
+                <AlertCircle className="w-6 h-6 text-danger-500" />
+              ) : (
+                <Upload
+                  className={cn(
+                    'w-6 h-6',
+                    isDragActive ? 'text-primary-500' : 'text-slate-400'
+                  )}
+                />
+              )}
+            </div>
+
+            <p className="text-sm font-medium text-slate-700 mb-1">
+              {isDragReject
+                ? 'Invalid file type'
+                : isDragActive
+                  ? 'Drop the file here'
+                  : label}
+            </p>
+
+            <p className="text-xs text-slate-500">
+              {isDragActive ? 'Release to upload' : hint}
+            </p>
           </div>
 
-          <p className="text-sm font-medium text-slate-700 mb-1">
-            {isDragReject
-              ? 'Invalid file type'
-              : isDragActive
-                ? 'Drop the file here'
-                : label}
-          </p>
-
-          <p className="text-xs text-slate-500">
-            {isDragActive ? 'Release to upload' : hint}
-          </p>
-
-          {!isDragActive && (
+          {/* Separate paste area */}
+          <div
+            tabIndex={0}
+            onPaste={handlePaste}
+            onFocus={() => setIsFocused(true)}
+            onBlur={() => setIsFocused(false)}
+            className={cn(
+              'relative border-2 border-dashed rounded-lg px-4 py-3 transition-all duration-200 cursor-pointer outline-none',
+              'flex items-center justify-center gap-2',
+              isFocused
+                ? 'border-primary-400 bg-primary-50 ring-2 ring-primary-200'
+                : 'border-slate-200 hover:border-slate-300 bg-slate-50',
+              disabled && 'opacity-50 cursor-not-allowed'
+            )}
+          >
+            <Clipboard className={cn('w-4 h-4', isFocused ? 'text-primary-600' : 'text-slate-400')} />
             <p className={cn(
-              'text-xs mt-2 flex items-center gap-1',
-              isFocused ? 'text-primary-600 font-medium' : 'text-slate-400'
+              'text-xs',
+              isFocused ? 'text-primary-600 font-medium' : 'text-slate-500'
             )}>
-              <Clipboard className="w-3 h-3" />
-              {isFocused ? 'Ready! Press Ctrl+V to paste' : 'Click here, then Ctrl+V to paste'}
+              {isFocused ? 'Ready! Press Ctrl+V to paste' : 'Click here to paste from clipboard'}
             </p>
-          )}
+          </div>
         </div>
       ) : (
         <div className="relative border-2 border-slate-200 rounded-xl overflow-hidden bg-white">
