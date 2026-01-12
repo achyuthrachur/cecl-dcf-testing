@@ -117,7 +117,7 @@ export async function POST(request: NextRequest) {
     const excelBuffer = await generateExcelReport(segment, results);
     const filename = `CECL_DCF_${segmentName}_${timestamp}.xlsx`;
 
-    return new NextResponse(excelBuffer, {
+    return new NextResponse(new Uint8Array(excelBuffer), {
       headers: {
         'Content-Type':
           'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
