@@ -154,8 +154,8 @@ export function SegmentSetup() {
           </div>
           <Badge
             variant={
-              (curve as ForecastCurve & { confidence?: number }).confidence >=
-              0.8
+              ((curve as ForecastCurve & { confidence?: number }).confidence ??
+                0.9) >= 0.8
                 ? 'success'
                 : 'warning'
             }
