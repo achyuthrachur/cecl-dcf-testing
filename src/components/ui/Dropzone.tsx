@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useState, useRef } from 'react';
+import { useCallback, useState, useEffect } from 'react';
 import { useDropzone, FileRejection } from 'react-dropzone';
 import { cn } from '@/lib/utils';
 import { Upload, Image as ImageIcon, X, AlertCircle, Clipboard } from 'lucide-react';
@@ -23,7 +23,7 @@ export function Dropzone({
   accept = {
     'image/*': ['.png', '.jpg', '.jpeg', '.gif', '.webp'],
   },
-  maxSize = 10 * 1024 * 1024, // 10MB
+  maxSize = 10 * 1024 * 1024,
   label = 'Upload Image',
   hint = 'PNG, JPG, GIF up to 10MB',
   disabled = false,
@@ -33,8 +33,35 @@ export function Dropzone({
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [isFocused, setIsFocused] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
+
+  const processFile = useCallback(
+    (newFile: File) => {
+      if (newFile.size > maxSize) {
+        setError('File is too large. Maximum size is ' + (maxSize / 1024 / 1024) + 'MB');
+        return false;
+      }
+
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const extension = newFile.type.split('/')[1] || 'png';
+      const processedFile = new File(
+        [newFile],
+        newFile.name || 'pasted-image-' + timestamp + '.' + extension,
+        { type: newFile.type }
+      );
+
+      setFile(processedFile);
+      setError(null);
+
+      if (preview) {
+        const url = URL.createObjectURL(processedFile);
+        setPreviewUrl(url);
+      }
+
+      onFileAccepted(processedFile);
+      return true;
+    },
+    [maxSize, preview, onFileAccepted]
+  );
 
   const onDrop = useCallback(
     (acceptedFiles: File[], rejectedFiles: FileRejection[]) => {
@@ -43,7 +70,7 @@ export function Dropzone({
       if (rejectedFiles.length > 0) {
         const rejection = rejectedFiles[0];
         if (rejection.errors[0]?.code === 'file-too-large') {
-          setError(`File is too large. Maximum size is ${maxSize / 1024 / 1024}MB`);
+          setError('File is too large. Maximum size is ' + (maxSize / 1024 / 1024) + 'MB');
         } else if (rejection.errors[0]?.code === 'file-invalid-type') {
           setError('Invalid file type. Please upload an image.');
         } else {
@@ -53,18 +80,10 @@ export function Dropzone({
       }
 
       if (acceptedFiles.length > 0) {
-        const acceptedFile = acceptedFiles[0];
-        setFile(acceptedFile);
-
-        if (preview) {
-          const url = URL.createObjectURL(acceptedFile);
-          setPreviewUrl(url);
-        }
-
-        onFileAccepted(acceptedFile);
+        processFile(acceptedFiles[0]);
       }
     },
-    [maxSize, preview, onFileAccepted]
+    [maxSize, processFile]
   );
 
   const removeFile = useCallback(() => {
@@ -77,9 +96,15 @@ export function Dropzone({
     onFileRemoved?.();
   }, [previewUrl, onFileRemoved]);
 
-  const handlePaste = useCallback(
-    (event: React.ClipboardEvent<HTMLDivElement>) => {
-      if (disabled || file) return;
+  // Global paste listener - works anywhere on the page without clicking
+  useEffect(() => {
+    if (disabled || file) return;
+
+    const handleGlobalPaste = (event: ClipboardEvent) => {
+      const target = event.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+        return;
+      }
 
       const items = event.clipboardData?.items;
       if (!items) return;
@@ -90,37 +115,16 @@ export function Dropzone({
           event.preventDefault();
           const pastedFile = item.getAsFile();
           if (pastedFile) {
-            // Validate file size
-            if (pastedFile.size > maxSize) {
-              setError(`File is too large. Maximum size is ${maxSize / 1024 / 1024}MB`);
-              return;
-            }
-
-            // Create a new file with a proper name for pasted images
-            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-            const extension = pastedFile.type.split('/')[1] || 'png';
-            const namedFile = new File(
-              [pastedFile],
-              `pasted-image-${timestamp}.${extension}`,
-              { type: pastedFile.type }
-            );
-
-            setFile(namedFile);
-            setError(null);
-
-            if (preview) {
-              const url = URL.createObjectURL(namedFile);
-              setPreviewUrl(url);
-            }
-
-            onFileAccepted(namedFile);
+            processFile(pastedFile);
           }
           return;
         }
       }
-    },
-    [disabled, file, maxSize, preview, onFileAccepted]
-  );
+    };
+
+    document.addEventListener('paste', handleGlobalPaste);
+    return () => document.removeEventListener('paste', handleGlobalPaste);
+  }, [disabled, file, processFile]);
 
   const { getRootProps, getInputProps, isDragActive, isDragReject } =
     useDropzone({
@@ -132,10 +136,9 @@ export function Dropzone({
     });
 
   return (
-    <div className={cn('w-full', className)} ref={containerRef}>
+    <div className={cn('w-full', className)}>
       {!file ? (
-        <div className="space-y-2">
-          {/* Drag & Drop / Click to browse area */}
+        <div className="space-y-3">
           <div
             {...getRootProps()}
             className={cn(
@@ -143,9 +146,7 @@ export function Dropzone({
               'flex flex-col items-center justify-center text-center',
               isDragActive && !isDragReject && 'border-primary-500 bg-primary-50',
               isDragReject && 'border-danger-500 bg-danger-50',
-              !isDragActive &&
-                !isDragReject &&
-                'border-slate-300 hover:border-primary-400 hover:bg-slate-50',
+              !isDragActive && !isDragReject && 'border-slate-300 hover:border-primary-400 hover:bg-slate-50',
               disabled && 'opacity-50 cursor-not-allowed',
               error && 'border-danger-300 bg-danger-50'
             )}
@@ -154,30 +155,21 @@ export function Dropzone({
 
             <div
               className={cn(
-                'w-12 h-12 rounded-full flex items-center justify-center mb-3',
+                'w-14 h-14 rounded-full flex items-center justify-center mb-3',
                 isDragActive && !isDragReject && 'bg-primary-100',
                 isDragReject && 'bg-danger-100',
                 !isDragActive && !isDragReject && 'bg-slate-100'
               )}
             >
               {isDragReject ? (
-                <AlertCircle className="w-6 h-6 text-danger-500" />
+                <AlertCircle className="w-7 h-7 text-danger-500" />
               ) : (
-                <Upload
-                  className={cn(
-                    'w-6 h-6',
-                    isDragActive ? 'text-primary-500' : 'text-slate-400'
-                  )}
-                />
+                <Upload className={cn('w-7 h-7', isDragActive ? 'text-primary-500' : 'text-slate-400')} />
               )}
             </div>
 
             <p className="text-sm font-medium text-slate-700 mb-1">
-              {isDragReject
-                ? 'Invalid file type'
-                : isDragActive
-                  ? 'Drop the file here'
-                  : label}
+              {isDragReject ? 'Invalid file type' : isDragActive ? 'Drop the file here' : label}
             </p>
 
             <p className="text-xs text-slate-500">
@@ -185,39 +177,25 @@ export function Dropzone({
             </p>
           </div>
 
-          {/* Separate paste area */}
-          <div
-            tabIndex={0}
-            onPaste={handlePaste}
-            onFocus={() => setIsFocused(true)}
-            onBlur={() => setIsFocused(false)}
-            className={cn(
-              'relative border-2 border-dashed rounded-lg px-4 py-3 transition-all duration-200 cursor-pointer outline-none',
-              'flex items-center justify-center gap-2',
-              isFocused
-                ? 'border-primary-400 bg-primary-50 ring-2 ring-primary-200'
-                : 'border-slate-200 hover:border-slate-300 bg-slate-50',
-              disabled && 'opacity-50 cursor-not-allowed'
-            )}
-          >
-            <Clipboard className={cn('w-4 h-4', isFocused ? 'text-primary-600' : 'text-slate-400')} />
-            <p className={cn(
-              'text-xs',
-              isFocused ? 'text-primary-600 font-medium' : 'text-slate-500'
-            )}>
-              {isFocused ? 'Ready! Press Ctrl+V to paste' : 'Click here to paste from clipboard'}
-            </p>
+          <div className={cn(
+            'flex items-center justify-center gap-2 px-4 py-3 rounded-lg transition-all',
+            'bg-gradient-to-r from-primary-50 to-primary-100 border border-primary-200',
+            disabled && 'opacity-50'
+          )}>
+            <Clipboard className="w-5 h-5 text-primary-600" />
+            <div className="text-center">
+              <p className="text-sm font-medium text-primary-700">Paste Screenshot Anywhere</p>
+              <p className="text-xs text-primary-600">
+                Press <kbd className="px-1.5 py-0.5 bg-white rounded border border-primary-300 font-mono text-xs">Ctrl</kbd> + <kbd className="px-1.5 py-0.5 bg-white rounded border border-primary-300 font-mono text-xs">V</kbd> to paste
+              </p>
+            </div>
           </div>
         </div>
       ) : (
         <div className="relative border-2 border-slate-200 rounded-xl overflow-hidden bg-white">
           {preview && previewUrl && (
             <div className="aspect-video relative bg-slate-100">
-              <img
-                src={previewUrl}
-                alt="Preview"
-                className="w-full h-full object-contain"
-              />
+              <img src={previewUrl} alt="Preview" className="w-full h-full object-contain" />
             </div>
           )}
 
@@ -227,12 +205,8 @@ export function Dropzone({
                 <ImageIcon className="w-5 h-5 text-primary-600" />
               </div>
               <div className="min-w-0">
-                <p className="text-sm font-medium text-slate-900 truncate">
-                  {file.name}
-                </p>
-                <p className="text-xs text-slate-500">
-                  {(file.size / 1024).toFixed(1)} KB
-                </p>
+                <p className="text-sm font-medium text-slate-900 truncate">{file.name}</p>
+                <p className="text-xs text-slate-500">{(file.size / 1024).toFixed(1)} KB</p>
               </div>
             </div>
 
