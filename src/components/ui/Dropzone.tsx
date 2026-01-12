@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useState, useEffect, useRef } from 'react';
+import React, { useCallback, useState, useRef } from 'react';
 import { useDropzone, FileRejection } from 'react-dropzone';
 import { cn } from '@/lib/utils';
 import { Upload, Image as ImageIcon, X, AlertCircle, Clipboard } from 'lucide-react';
@@ -33,6 +33,8 @@ export function Dropzone({
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isFocused, setIsFocused] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   const onDrop = useCallback(
     (acceptedFiles: File[], rejectedFiles: FileRejection[]) => {
@@ -75,10 +77,8 @@ export function Dropzone({
     onFileRemoved?.();
   }, [previewUrl, onFileRemoved]);
 
-  const dropzoneRef = useRef<HTMLDivElement>(null);
-
   const handlePaste = useCallback(
-    (event: ClipboardEvent) => {
+    (event: React.ClipboardEvent<HTMLDivElement>) => {
       if (disabled || file) return;
 
       const items = event.clipboardData?.items;
@@ -122,24 +122,6 @@ export function Dropzone({
     [disabled, file, maxSize, preview, onFileAccepted]
   );
 
-  // Listen for paste events when the dropzone is focused or globally when no file is present
-  useEffect(() => {
-    const handleGlobalPaste = (event: ClipboardEvent) => {
-      // Only handle paste if the dropzone area is focused or hovered
-      const activeElement = document.activeElement;
-      const dropzoneElement = dropzoneRef.current;
-
-      if (dropzoneElement?.contains(activeElement) || dropzoneElement?.matches(':hover')) {
-        handlePaste(event);
-      }
-    };
-
-    document.addEventListener('paste', handleGlobalPaste);
-    return () => {
-      document.removeEventListener('paste', handleGlobalPaste);
-    };
-  }, [handlePaste]);
-
   const { getRootProps, getInputProps, isDragActive, isDragReject } =
     useDropzone({
       onDrop,
@@ -150,7 +132,14 @@ export function Dropzone({
     });
 
   return (
-    <div className={cn('w-full', className)} ref={dropzoneRef} tabIndex={0}>
+    <div
+      className={cn('w-full outline-none', className)}
+      ref={containerRef}
+      tabIndex={0}
+      onPaste={handlePaste}
+      onFocus={() => setIsFocused(true)}
+      onBlur={() => setIsFocused(false)}
+    >
       {!file ? (
         <div
           {...getRootProps()}
@@ -159,8 +148,10 @@ export function Dropzone({
             'flex flex-col items-center justify-center text-center',
             isDragActive && !isDragReject && 'border-primary-500 bg-primary-50',
             isDragReject && 'border-danger-500 bg-danger-50',
+            isFocused && !isDragActive && 'border-primary-400 bg-primary-50 ring-2 ring-primary-200',
             !isDragActive &&
               !isDragReject &&
+              !isFocused &&
               'border-slate-300 hover:border-primary-400 hover:bg-slate-50',
             disabled && 'opacity-50 cursor-not-allowed',
             error && 'border-danger-300 bg-danger-50'
@@ -201,9 +192,12 @@ export function Dropzone({
           </p>
 
           {!isDragActive && (
-            <p className="text-xs text-slate-400 mt-2 flex items-center gap-1">
+            <p className={cn(
+              'text-xs mt-2 flex items-center gap-1',
+              isFocused ? 'text-primary-600 font-medium' : 'text-slate-400'
+            )}>
               <Clipboard className="w-3 h-3" />
-              Or paste from clipboard (Ctrl+V)
+              {isFocused ? 'Ready! Press Ctrl+V to paste' : 'Click here, then Ctrl+V to paste'}
             </p>
           )}
         </div>
