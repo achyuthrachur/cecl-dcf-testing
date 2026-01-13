@@ -193,17 +193,39 @@ export function getSMM(loan: LoanInput): number {
 
 /**
  * Calculate prepayment for the period
- * Prepayment = SMM × (Beginning Balance - Scheduled Principal)
+ *
+ * Payment type determines which rate to use (matches Excel template logic):
+ * - Fixed Payment / Fixed Principal: Use SMM/CPR prepayment rate only
+ * - Interest Only / Line of Credit: Use Curtailment rate only
+ *
+ * Prepayment = Rate × (Beginning Balance - Scheduled Principal)
  */
 export function calculatePrepayment(
   beginningBalance: number,
   scheduledPrincipal: number,
   smm: number,
-  curtailmentRate: number
+  curtailmentRate: number,
+  paymentType: string
 ): number {
-  const effectiveSMM = smm + curtailmentRate;
+  let effectiveRate: number;
+
+  switch (paymentType) {
+    case 'Interest Only':
+    case 'Line of Credit':
+      // Interest Only and LOC use curtailment rate only (per Excel template)
+      effectiveRate = curtailmentRate;
+      break;
+
+    case 'Fixed Payment':
+    case 'Fixed Principal':
+    default:
+      // Amortizing loans use SMM/CPR prepayment rate only (per Excel template)
+      effectiveRate = smm;
+      break;
+  }
+
   const prepayableBalance = beginningBalance - scheduledPrincipal;
-  return Math.max(0, prepayableBalance * effectiveSMM);
+  return Math.max(0, prepayableBalance * effectiveRate);
 }
 
 // ----------------------------------------------------------------------------
@@ -357,12 +379,13 @@ export function calculateDCF(
       remainingPeriods
     );
 
-    // Calculate prepayment
+    // Calculate prepayment (rate depends on payment type per Excel template)
     const prepayment = calculatePrepayment(
       balance,
       scheduledPrincipal,
       smm,
-      loan.curtailmentRate
+      loan.curtailmentRate,
+      loan.paymentType
     );
 
     // Calculate default
