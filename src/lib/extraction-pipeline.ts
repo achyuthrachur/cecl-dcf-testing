@@ -64,7 +64,7 @@ export async function classifyImage(imageBase64: string): Promise<ImageType> {
           ],
         },
       ],
-      max_tokens: 10,
+      max_completion_tokens: 10,
     });
 
     const result = response.choices[0]?.message?.content?.trim().toUpperCase();
@@ -154,7 +154,7 @@ export async function extractForecast(
           ],
         },
       ],
-      max_tokens: 4000,
+      max_completion_tokens: 4000,
       response_format: { type: 'json_object' },
     });
 
@@ -318,7 +318,7 @@ export async function extractLoan(
           ],
         },
       ],
-      max_tokens: 4000,
+      max_completion_tokens: 4000,
       response_format: { type: 'json_object' },
     });
 
