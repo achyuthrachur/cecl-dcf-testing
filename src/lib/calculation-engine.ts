@@ -234,7 +234,8 @@ export function calculatePrepayment(
 
 /**
  * Calculate default amount for the period
- * Default = PD × (Beginning Balance - Scheduled Principal - Prepayment)
+ * Per Excel template: Defaulted Principal = MIN(PD × Beginning Balance, Beginning Balance - Principal)
+ * PD is applied to full beginning balance, capped at available balance after principal
  */
 export function calculateDefault(
   beginningBalance: number,
@@ -242,8 +243,10 @@ export function calculateDefault(
   prepayment: number,
   pdRate: number
 ): number {
-  const defaultableBalance = beginningBalance - scheduledPrincipal - prepayment;
-  return Math.max(0, defaultableBalance * pdRate);
+  // Excel formula: MIN(PD × Beginning Balance, Beginning Balance - Principal)
+  const calculatedDefault = beginningBalance * pdRate;
+  const maxDefault = beginningBalance - scheduledPrincipal;
+  return Math.max(0, Math.min(calculatedDefault, maxDefault));
 }
 
 /**
@@ -425,12 +428,14 @@ export function calculateDCF(
     cumulativeRecovery += recoveryAmount;
 
     // Calculate total cash flow for the period
+    // Per Excel template: Cash Flow = Principal + Interest + Prepayments + Recovery
+    // Loss is NOT subtracted - it's implicit in the reduced principal from defaults
+    // (defaulted principal is removed from balance, recovery comes back later)
     const totalCashFlow =
       interestPayment +
       scheduledPrincipal +
       prepayment +
-      recoveryAmount -
-      lossAmount;
+      recoveryAmount;
 
     // Calculate discount factor
     const discountFactor = calculateDiscountFactor(
