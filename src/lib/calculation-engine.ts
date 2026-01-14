@@ -296,6 +296,44 @@ export function calculateDiscountFactor(
 }
 
 // ----------------------------------------------------------------------------
+// Rate Normalization Utilities
+// ----------------------------------------------------------------------------
+
+/**
+ * Normalize a rate to decimal format
+ * Rates should be in decimal form (e.g., 0.035 for 3.5%)
+ * If a rate appears to be in percentage form (> 1), convert it to decimal
+ *
+ * Examples:
+ *   3.5 -> 0.035 (was percentage, converted to decimal)
+ *   0.035 -> 0.035 (already decimal, unchanged)
+ *   0.5 -> 0.005 (ambiguous but > 0.25 suggests percentage, convert)
+ *   0.15 -> 0.15 (could be 15% in decimal form, leave as-is)
+ */
+export function normalizeRateToDecimal(rate: number, fieldName: string = 'rate'): {
+  value: number;
+  wasConverted: boolean;
+  warning?: string;
+} {
+  if (rate === 0 || rate === undefined || rate === null) {
+    return { value: 0, wasConverted: false };
+  }
+
+  // If rate is greater than 0.25 (25%), it's very likely in percentage form
+  // Most loan interest rates and yields are below 25%
+  if (rate > 0.25) {
+    const convertedRate = rate / 100;
+    return {
+      value: convertedRate,
+      wasConverted: true,
+      warning: `${fieldName} appears to be in percentage form (${rate}). Converted to decimal (${convertedRate.toFixed(6)}).`
+    };
+  }
+
+  return { value: rate, wasConverted: false };
+}
+
+// ----------------------------------------------------------------------------
 // Main Calculation Engine
 // ----------------------------------------------------------------------------
 
@@ -325,12 +363,38 @@ export function calculateDCF(
     errors.push('LGD forecast curve is empty');
   }
 
+  // Normalize rates to ensure they are in decimal format
+  // This handles cases where rates were extracted/entered as percentages (e.g., 3.5 instead of 0.035)
+  const effectiveYieldNorm = normalizeRateToDecimal(loan.effectiveYield, 'Effective Yield');
+  const interestRateNorm = normalizeRateToDecimal(loan.interestRate, 'Interest Rate');
+  const cprNorm = normalizeRateToDecimal(loan.cpr || 0, 'CPR');
+  const smmNorm = normalizeRateToDecimal(loan.smm || 0, 'SMM');
+  const curtailmentNorm = normalizeRateToDecimal(loan.curtailmentRate || 0, 'Curtailment Rate');
+
+  // Add warnings for any converted rates
+  if (effectiveYieldNorm.warning) warnings.push(effectiveYieldNorm.warning);
+  if (interestRateNorm.warning) warnings.push(interestRateNorm.warning);
+  if (cprNorm.warning) warnings.push(cprNorm.warning);
+  if (smmNorm.warning) warnings.push(smmNorm.warning);
+  if (curtailmentNorm.warning) warnings.push(curtailmentNorm.warning);
+
+  // Use normalized rates
+  const effectiveYield = effectiveYieldNorm.value;
+  const interestRate = interestRateNorm.value;
+  const normalizedCpr = cprNorm.value;
+  const normalizedSmm = smmNorm.value;
+  const curtailmentRate = curtailmentNorm.value;
+
   // Generate schedule dates
   const calculationDate = new Date(loan.calculationDate);
   const scheduleDates = generateScheduleDates(calculationDate, loan.periods);
 
-  // Get SMM rate (SMM preferred over CPR)
-  const smm = getSMM(loan);
+  // Get SMM rate (SMM preferred over CPR) - use normalized values
+  const smm = normalizedSmm > 0
+    ? normalizedSmm
+    : normalizedCpr > 0
+      ? 1 - Math.pow(1 - normalizedCpr, 1 / 12)
+      : 0;
 
   // Initialize tracking variables
   let balance = loan.bookBalance;
@@ -367,9 +431,9 @@ export function calculateDCF(
     // This ensures proper compounding when applied monthly
     const pdRate = 1 - Math.pow(1 - annualPdRate, 1 / 12);
 
-    // Calculate monthly interest rate
+    // Calculate monthly interest rate (using normalized interest rate)
     const monthlyInterestRate = calculateMonthlyInterestRate(
-      loan.interestRate,
+      interestRate,
       daysInPeriod,
       loan.amortizationDays
     );
@@ -391,7 +455,7 @@ export function calculateDCF(
       balance,
       scheduledPrincipal,
       smm,
-      loan.curtailmentRate,
+      curtailmentRate,
       loan.paymentType
     );
 
@@ -437,9 +501,9 @@ export function calculateDCF(
       prepayment +
       recoveryAmount;
 
-    // Calculate discount factor
+    // Calculate discount factor (using normalized effective yield)
     const discountFactor = calculateDiscountFactor(
-      loan.effectiveYield,
+      effectiveYield,
       period,
       cumulativeDays,
       loan.amortizationDays
