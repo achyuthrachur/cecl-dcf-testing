@@ -279,14 +279,14 @@ export function LoanProcessing() {
                         field.type === 'date' && value
                           ? new Date(value as Date).toISOString().split('T')[0]
                           : field.type === 'percent' && value
-                            ? (value as number) * 100
+                            ? Number(((value as number) * 100).toFixed(4))
                             : String(value ?? '')
                       }
                       onChange={(e) => {
                         let newValue: unknown = e.target.value;
                         if (field.type === 'number') newValue = parseInt(e.target.value) || 0;
                         if (field.type === 'currency') newValue = parseFloat(e.target.value) || 0;
-                        if (field.type === 'percent') newValue = parseFloat(e.target.value) / 100 || 0;
+                        if (field.type === 'percent') newValue = Number((parseFloat(e.target.value) / 100).toFixed(6)) || 0;
                         if (field.type === 'date') newValue = new Date(e.target.value);
                         handleUpdateField(field.key, newValue);
                       }}
