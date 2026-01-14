@@ -356,9 +356,13 @@ export function calculateDCF(
     // Get cumulative days for discounting
     const cumulativeDays = getCumulativeDays(calculationDate, periodDate);
 
-    // Get forecast rates for this period
-    const pdRate = getForecastRate(pdCurve, periodDate);
+    // Get forecast rates for this period (these are annual rates)
+    const annualPdRate = getForecastRate(pdCurve, periodDate);
     const lgdRate = getForecastRate(lgdCurve, periodDate);
+
+    // Convert annual PD to monthly: Monthly PD = 1 - (1 - Annual PD)^(1/12)
+    // This ensures proper compounding when applied monthly
+    const pdRate = 1 - Math.pow(1 - annualPdRate, 1 / 12);
 
     // Calculate monthly interest rate
     const monthlyInterestRate = calculateMonthlyInterestRate(

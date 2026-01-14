@@ -209,8 +209,8 @@ const LOAN_EXTRACTION_PROMPT = `Extract the loan information from this image. Th
 
 Extract all available fields. For each field, convert to the appropriate format:
 - Loan Number: string
-- Book Balance: number (remove $ and commas)
-- Unamortized Amount: number (remove $ and commas)
+- Book Balance: number (remove $ and commas, preserve sign)
+- Unamortized Amount: number (remove $ and commas, PRESERVE NEGATIVE SIGN if present - this is often negative)
 - Calculation Date: ISO date format (YYYY-MM-DD)
 - Interest Rate: decimal (convert 5.25% to 0.0525)
 - Effective Yield: decimal (convert percentages to decimal)

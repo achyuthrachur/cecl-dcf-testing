@@ -296,7 +296,7 @@ export function SegmentSetup() {
                         {formatDate(period.endDate)}
                       </td>
                       <td className="px-3 py-1.5 text-xs text-slate-900 text-right font-mono">
-                        {formatPercent(period.rateDecimal, 3)}
+                        {formatPercent(period.rateDecimal, 4)}
                       </td>
                       <td className="px-3 py-1.5 text-center">
                         {period.confidence < 0.8 ? (

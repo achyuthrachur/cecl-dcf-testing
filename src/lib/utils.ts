@@ -33,6 +33,7 @@ export function formatPercent(value: number, decimals: number = 2): string {
 
 /**
  * Format date to display string
+ * Uses UTC to avoid timezone shifts when parsing ISO date strings
  */
 export function formatDate(date: Date | string): string {
   const d = typeof date === 'string' ? new Date(date) : date;
@@ -40,6 +41,7 @@ export function formatDate(date: Date | string): string {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
+    timeZone: 'UTC',
   });
 }
 
