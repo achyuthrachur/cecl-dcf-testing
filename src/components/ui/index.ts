@@ -4,3 +4,4 @@ export { Input } from './Input';
 export { Dropzone } from './Dropzone';
 export { Badge } from './Badge';
 export { DataTable } from './DataTable';
+export { Dialog, DialogHeader, DialogTitle, DialogDescription, DialogContent, DialogFooter } from './Dialog';
