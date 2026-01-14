@@ -278,21 +278,24 @@ export function calculateRecovery(
 /**
  * Calculate discount factor for present value calculation
  * Uses Effective Yield for discounting
+ *
+ * IMPORTANT: Discounting ALWAYS uses actual calendar days divided by 365,
+ * regardless of the interest day count convention (Actual 360, 30/360, etc.)
+ * This matches Excel's XNPV function behavior.
+ *
+ * The amortizationDays parameter affects INTEREST calculation, not discounting.
+ * Discounting is always: (1 + effectiveYield)^(-(cumulativeDays / 365))
  */
 export function calculateDiscountFactor(
   effectiveYield: number,
-  period: number,
+  _period: number,
   cumulativeDays: number,
-  amortizationDays: AmortizationDays
+  _amortizationDays: AmortizationDays
 ): number {
-  if (amortizationDays === 'Actual 360' || amortizationDays === 'Actual 365') {
-    // Discount by actual days / 365
-    return Math.pow(1 + effectiveYield, -(cumulativeDays / 365));
-  }
-
-  // Monthly discounting
-  const monthlyRate = effectiveYield / 12;
-  return Math.pow(1 + monthlyRate, -period);
+  // Always use actual calendar days for discounting (XNPV approach)
+  // This matches Excel template behavior
+  // Note: _period and _amortizationDays kept for API compatibility but not used
+  return Math.pow(1 + effectiveYield, -(cumulativeDays / 365));
 }
 
 // ----------------------------------------------------------------------------
