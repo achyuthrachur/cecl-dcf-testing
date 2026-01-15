@@ -104,21 +104,38 @@ export function getForecastRate(
 // ----------------------------------------------------------------------------
 
 /**
+ * Get the amortization multiplier based on day count convention
+ * Per Excel: AmortizationMultiplier = IF(AmortizationDays contains "360", 365/360, 1)
+ */
+export function getAmortizationMultiplier(amortizationDays: AmortizationDays): number {
+  if (amortizationDays === 'Actual 360') {
+    return 365 / 360;
+  }
+  return 1;
+}
+
+/**
  * Calculate monthly interest rate based on amortization days convention
+ * Per Excel: InterestRate × AmortizationMultiplier × IF(SEARCH("Actual", AmortizationDays), DaysInMonth/365, 1/12)
  */
 export function calculateMonthlyInterestRate(
   annualRate: number,
   daysInMonth: number,
   amortizationDays: AmortizationDays
 ): number {
+  const amortMultiplier = getAmortizationMultiplier(amortizationDays);
+
   switch (amortizationDays) {
     case 'Actual 360':
-      return annualRate * (daysInMonth / 360);
+      // Excel: Rate × (365/360) × (Days/365) = Rate × Days / 360 with multiplier
+      return annualRate * amortMultiplier * (daysInMonth / 365);
     case 'Actual 365':
-      return annualRate * (daysInMonth / 365);
+      // Excel: Rate × 1 × (Days/365)
+      return annualRate * amortMultiplier * (daysInMonth / 365);
     case '30/360':
     default:
-      return annualRate / 12;
+      // Excel: Rate × 1 × (1/12)
+      return annualRate * amortMultiplier * (1 / 12);
   }
 }
 
@@ -138,25 +155,33 @@ export function calculateInterestPayment(
 
 /**
  * Calculate scheduled principal payment based on payment type
+ * Per Excel: For Interest Only loans, principal = Beginning Balance × monthly curtailment rate
+ * where monthly curtailment = ROUND(1 - (1 - CurtailmentRate)^(1/12), 6)
  */
 export function calculateScheduledPrincipal(
   beginningBalance: number,
   interestPayment: number,
   paymentAmount: number,
   paymentType: string,
-  remainingPeriods: number
+  remainingPeriods: number,
+  curtailmentRate: number = 0
 ): number {
   switch (paymentType) {
     case 'Fixed Payment':
       // Principal = Payment - Interest
-      return Math.max(0, Math.min(paymentAmount - interestPayment, beginningBalance));
+      return roundTo2Decimals(Math.max(0, Math.min(paymentAmount - interestPayment, beginningBalance)));
 
     case 'Fixed Principal':
       // Fixed principal amount per period (simplified)
-      return Math.min(paymentAmount, beginningBalance);
+      return roundTo2Decimals(Math.min(paymentAmount, beginningBalance));
 
     case 'Interest Only':
-      // No principal payment
+      // Per Excel: Interest Only loans use curtailment rate for principal reduction
+      // Formula: Beginning Balance × ROUND(1 - (1 - CurtailmentRate)^(1/12), 6)
+      if (curtailmentRate > 0) {
+        const monthlyCurtailment = roundTo6Decimals(1 - Math.pow(1 - curtailmentRate, 1 / 12));
+        return roundTo2Decimals(beginningBalance * monthlyCurtailment);
+      }
       return 0;
 
     case 'Line of Credit':
@@ -165,8 +190,22 @@ export function calculateScheduledPrincipal(
 
     default:
       // Default to amortizing
-      return Math.max(0, paymentAmount - interestPayment);
+      return roundTo2Decimals(Math.max(0, paymentAmount - interestPayment));
   }
+}
+
+/**
+ * Round to 2 decimal places (matches Excel ROUND(..., 2))
+ */
+function roundTo2Decimals(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+/**
+ * Round to 6 decimal places (matches Excel ROUND(..., 6))
+ */
+function roundTo6Decimals(value: number): number {
+  return Math.round(value * 1000000) / 1000000;
 }
 
 // ----------------------------------------------------------------------------
@@ -194,38 +233,42 @@ export function getSMM(loan: LoanInput): number {
 /**
  * Calculate prepayment for the period
  *
- * Payment type determines which rate to use (matches Excel template logic):
- * - Fixed Payment / Fixed Principal: Use SMM/CPR prepayment rate only
- * - Interest Only / Line of Credit: Use Curtailment rate only
+ * Per Excel formula (Column I):
+ * IF(Loan Type = "Interest Only", 0,
+ *    ROUND(MAX(MIN(SMM × Beginning Balance, Beginning Balance - Principal), 0), 2))
  *
- * Prepayment = Rate × (Beginning Balance - Scheduled Principal)
+ * Key difference from previous implementation:
+ * - SMM is applied to FULL Beginning Balance first
+ * - Then result is CAPPED at (Beginning Balance - Principal)
+ * - Interest Only loans have 0 prepayment (curtailment used for principal instead)
+ * - Line of Credit also has 0 prepayment
  */
 export function calculatePrepayment(
   beginningBalance: number,
   scheduledPrincipal: number,
   smm: number,
-  curtailmentRate: number,
+  _curtailmentRate: number,  // Kept for API compatibility; curtailment now used in principal calc
   paymentType: string
 ): number {
-  let effectiveRate: number;
-
   switch (paymentType) {
     case 'Interest Only':
+      // Per Excel: Interest Only loans have 0 prepayment
+      // (curtailment is used for principal reduction instead)
+      return 0;
+
     case 'Line of Credit':
-      // Interest Only and LOC use curtailment rate only (per Excel template)
-      effectiveRate = curtailmentRate;
-      break;
+      // Per Excel: Line of Credit has 0 prepayment (uses curtailment for principal)
+      return 0;
 
     case 'Fixed Payment':
     case 'Fixed Principal':
     default:
-      // Amortizing loans use SMM/CPR prepayment rate only (per Excel template)
-      effectiveRate = smm;
-      break;
+      // Per Excel: Prepayment = MIN(SMM × Beginning Balance, Beginning Balance - Principal)
+      // SMM applied to FULL beginning balance, then capped
+      const calculatedPrepayment = beginningBalance * smm;
+      const maxPrepayment = beginningBalance - scheduledPrincipal;
+      return roundTo2Decimals(Math.max(0, Math.min(calculatedPrepayment, maxPrepayment)));
   }
-
-  const prepayableBalance = beginningBalance - scheduledPrincipal;
-  return Math.max(0, prepayableBalance * effectiveRate);
 }
 
 // ----------------------------------------------------------------------------
@@ -234,8 +277,11 @@ export function calculatePrepayment(
 
 /**
  * Calculate default amount for the period
- * Per Excel template: Defaulted Principal = MIN(PD × Beginning Balance, Beginning Balance - Principal)
- * PD is applied to full beginning balance, capped at available balance after principal
+ * Per Excel formula (Column J):
+ * ROUND(MIN(Beginning Balance × PD Rate, Beginning Balance - Principal - Prepayments), 2)
+ *
+ * Key: The max default is capped at (Beginning Balance - Principal - Prepayments)
+ * This ensures defaults can't exceed available balance after principal and prepayments
  */
 export function calculateDefault(
   beginningBalance: number,
@@ -243,21 +289,21 @@ export function calculateDefault(
   prepayment: number,
   pdRate: number
 ): number {
-  // Excel formula: MIN(PD × Beginning Balance, Beginning Balance - Principal)
+  // Excel formula: MIN(PD × Beginning Balance, Beginning Balance - Principal - Prepayments)
   const calculatedDefault = beginningBalance * pdRate;
-  const maxDefault = beginningBalance - scheduledPrincipal;
-  return Math.max(0, Math.min(calculatedDefault, maxDefault));
+  const maxDefault = beginningBalance - scheduledPrincipal - prepayment;
+  return roundTo2Decimals(Math.max(0, Math.min(calculatedDefault, maxDefault)));
 }
 
 /**
  * Calculate loss amount for the period
- * Loss = LGD × Default Amount
+ * Per Excel: Loss = ROUND(LGD × Default Amount, 2)
  */
 export function calculateLoss(
   defaultAmount: number,
   lgdRate: number
 ): number {
-  return defaultAmount * lgdRate;
+  return roundTo2Decimals(defaultAmount * lgdRate);
 }
 
 /**
@@ -279,23 +325,33 @@ export function calculateRecovery(
  * Calculate discount factor for present value calculation
  * Uses Effective Yield for discounting
  *
- * IMPORTANT: Discounting ALWAYS uses actual calendar days divided by 365,
- * regardless of the interest day count convention (Actual 360, 30/360, etc.)
- * This matches Excel's XNPV function behavior.
+ * Per Excel formula (Column Q - Present Value):
+ * Cash Flow / ((1 + ActualRateToUse)^(
+ *   IF(SEARCH("Actual", AmortizationDays), Running Total / 365, Period / 12)
+ * ))
  *
- * The amortizationDays parameter affects INTEREST calculation, not discounting.
- * Discounting is always: (1 + effectiveYield)^(-(cumulativeDays / 365))
+ * Key difference:
+ * - For "Actual" day count conventions: Use cumulative days / 365
+ * - For 30/360 convention: Use period number / 12 (period-based discounting)
  */
 export function calculateDiscountFactor(
   effectiveYield: number,
-  _period: number,
+  period: number,
   cumulativeDays: number,
-  _amortizationDays: AmortizationDays
+  amortizationDays: AmortizationDays
 ): number {
-  // Always use actual calendar days for discounting (XNPV approach)
-  // This matches Excel template behavior
-  // Note: _period and _amortizationDays kept for API compatibility but not used
-  return Math.pow(1 + effectiveYield, -(cumulativeDays / 365));
+  let exponent: number;
+
+  if (amortizationDays === '30/360') {
+    // For 30/360: Use period-based discounting (Period / 12)
+    exponent = period / 12;
+  } else {
+    // For Actual 360 and Actual 365: Use calendar days / 365
+    exponent = cumulativeDays / 365;
+  }
+
+  // Discount factor = 1 / (1 + rate)^exponent
+  return 1 / Math.pow(1 + effectiveYield, exponent);
 }
 
 // ----------------------------------------------------------------------------
@@ -441,16 +497,17 @@ export function calculateDCF(
       loan.amortizationDays
     );
 
-    // Calculate interest payment
-    const interestPayment = calculateInterestPayment(balance, monthlyInterestRate);
+    // Calculate interest payment (with rounding per Excel)
+    const interestPayment = roundTo2Decimals(calculateInterestPayment(balance, monthlyInterestRate));
 
-    // Calculate scheduled principal
+    // Calculate scheduled principal (pass curtailmentRate for Interest Only loans)
     const scheduledPrincipal = calculateScheduledPrincipal(
       balance,
       interestPayment,
       loan.paymentAmount,
       loan.paymentType,
-      remainingPeriods
+      remainingPeriods,
+      curtailmentRate
     );
 
     // Calculate prepayment (rate depends on payment type per Excel template)
