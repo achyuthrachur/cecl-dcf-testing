@@ -25,32 +25,43 @@ function roundTo2(value) {
 
 /**
  * Convert rate from source period to monthly
+ *
+ * TWO METHODS:
+ * 1. SIMPLE (Excel/Abrigo): rate / 12
+ *    - Treats "quarterly" rates as annualized rates
+ *
+ * 2. COMPOUND (mathematically correct): 1 - (1-rate)^(1/n)
+ *    - True compound rate conversion
  */
-function convertRateToMonthly(rate, ratePeriod) {
+function convertRateToMonthly(rate, ratePeriod, method = 'simple') {
   if (rate === 0) return 0;
+  if (ratePeriod === 'monthly') return rate;
 
+  // SIMPLE METHOD: Divide by 12 (Excel/Abrigo approach)
+  if (method === 'simple') {
+    return roundTo6(rate / 12);
+  }
+
+  // COMPOUND METHOD: Mathematically correct
   switch (ratePeriod) {
-    case 'monthly':
-      return rate;
     case 'quarterly':
-      // Convert quarterly to monthly: 1 - (1 - quarterly_rate)^(1/3)
       return roundTo6(1 - Math.pow(1 - rate, 1 / 3));
     case 'annual':
-      // Convert annual to monthly: 1 - (1 - annual_rate)^(1/12)
       return roundTo6(1 - Math.pow(1 - rate, 1 / 12));
     default:
-      return roundTo6(1 - Math.pow(1 - rate, 1 / 3)); // Default to quarterly
+      return roundTo6(1 - Math.pow(1 - rate, 1 / 3));
   }
 }
 
-function runCalculation(quarterlyPd, lgd, ratePeriod, scenarioName) {
+function runCalculation(quarterlyPd, lgd, ratePeriod, method, scenarioName) {
   console.log('-'.repeat(80));
   console.log(`SCENARIO: ${scenarioName}`);
-  console.log(`  Input PD: ${(quarterlyPd * 100).toFixed(4)}% (${ratePeriod})`);
+  console.log(`  Input PD: ${(quarterlyPd * 100).toFixed(4)}% (labeled as ${ratePeriod})`);
+  console.log(`  Conversion Method: ${method}`);
   console.log(`  LGD: ${(lgd * 100).toFixed(2)}%`);
 
-  // Convert to monthly based on period
-  const monthlyPd = convertRateToMonthly(quarterlyPd, ratePeriod);
+  // Convert to monthly based on method
+  const monthlyPd = convertRateToMonthly(quarterlyPd, ratePeriod, method);
   console.log(`  Monthly PD: ${(monthlyPd * 100).toFixed(6)}%`);
 
   let balance = LOAN.bookBalance;
@@ -135,48 +146,62 @@ function runCalculation(quarterlyPd, lgd, ratePeriod, scenarioName) {
 // Header
 console.log('='.repeat(80));
 console.log('RATE CONVERSION FIX VERIFICATION');
+console.log('Comparing Excel/Abrigo "simple" method vs "compound" method');
 console.log('='.repeat(80));
 console.log();
+
+// Show what's in the Excel data
+console.log('FROM YOUR EXCEL SCREENSHOTS:');
+console.log('  Quarterly PD (Q1): 0.5449%');
+console.log('  Monthly PD (M1-3): 0.0455%');
+console.log();
+console.log('CONVERSION COMPARISON:');
+console.log('  Excel/Abrigo (simple): 0.5449% / 12 = 0.0454% ✓ MATCHES');
+console.log('  Compound formula:      1-(1-0.5449%)^(1/3) = 0.1823% ✗ DIFFERENT');
+console.log();
+
 console.log('LOAN DATA:');
 console.log(`  Book Balance:      $${LOAN.bookBalance.toLocaleString()}`);
 console.log(`  Actual Reserve:    $${LOAN.actualReserve.toLocaleString()}`);
 console.log();
 
-// Demonstrate the conversion formula
-console.log('RATE CONVERSION FORMULAS:');
-const testQtrRate = 0.005449; // 0.5449% quarterly PD
-console.log(`  Quarterly PD: ${(testQtrRate * 100).toFixed(4)}%`);
-console.log(`  Monthly PD = 1 - (1 - ${testQtrRate})^(1/3)`);
-console.log(`             = 1 - ${Math.pow(1 - testQtrRate, 1/3).toFixed(8)}`);
-console.log(`             = ${((1 - Math.pow(1 - testQtrRate, 1/3)) * 100).toFixed(6)}% (monthly)`);
-console.log();
-
-// Typical quarterly PD values from Excel (based on screenshots)
-const quarterlyPd = 0.005449;  // 0.5449% quarterly
-const lgd = 0.40;              // 40% LGD
+// Using rates from your forecast curves
+// Note: The "quarterly" rates in Excel are actually annualized rates!
+const quarterlyPd = 0.005449;  // 0.5449% (this is actually an annualized rate)
+const lgd = 0.078015;          // 7.8015% LGD from your data
 
 console.log('='.repeat(80));
-console.log('COMPARISON: OLD vs NEW CALCULATION');
+console.log('CALCULATION COMPARISON');
 console.log('='.repeat(80));
 
-// OLD: Annual conversion (wrong)
+// OLD: Compound method (what we were using)
 console.log();
-console.log('OLD CALCULATION (assuming annual rates):');
-runCalculation(quarterlyPd, lgd, 'annual', 'OLD - Using ^(1/12) - WRONG');
+console.log('OLD CALCULATION (compound method - WRONG for Excel rates):');
+const oldResult = runCalculation(quarterlyPd, lgd, 'quarterly', 'compound', 'OLD - Using 1-(1-rate)^(1/3)');
 
-// NEW: Quarterly conversion (correct)
+// NEW: Simple method (what Excel/Abrigo uses)
 console.log();
-console.log('NEW CALCULATION (using quarterly rates):');
-const result = runCalculation(quarterlyPd, lgd, 'quarterly', 'NEW - Using ^(1/3) - CORRECT');
+console.log('NEW CALCULATION (simple method - MATCHES Excel/Abrigo):');
+const newResult = runCalculation(quarterlyPd, lgd, 'quarterly', 'simple', 'NEW - Using rate/12');
 
 console.log('='.repeat(80));
 console.log('SUMMARY');
 console.log('='.repeat(80));
 console.log();
-if (Math.abs(result.variancePct) < 5) {
+console.log('Method Comparison:');
+console.log(`  Old (compound): Reserve = $${oldResult.reserve.toLocaleString(undefined, {minimumFractionDigits: 2})}, Variance = ${oldResult.variancePct.toFixed(2)}%`);
+console.log(`  New (simple):   Reserve = $${newResult.reserve.toLocaleString(undefined, {minimumFractionDigits: 2})}, Variance = ${newResult.variancePct.toFixed(2)}%`);
+console.log();
+console.log('IMPROVEMENT:');
+const improvement = Math.abs(oldResult.variancePct) - Math.abs(newResult.variancePct);
+console.log(`  Variance reduced by ${improvement.toFixed(2)} percentage points`);
+console.log();
+
+if (Math.abs(newResult.variancePct) < 5) {
   console.log('✓ SUCCESS: Variance is within 5% of actual reserve!');
-} else if (Math.abs(result.variancePct) < 20) {
+} else if (Math.abs(newResult.variancePct) < 20) {
   console.log('~ IMPROVED: Variance reduced but still significant');
+  console.log('  (May need to also check prepay/curtailment conversion)');
 } else {
   console.log('✗ ISSUE: Variance still large - may need additional adjustments');
 }

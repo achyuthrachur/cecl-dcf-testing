@@ -11,6 +11,7 @@ import {
   CalculationResult,
   AmortizationDays,
   RatePeriod,
+  RateConversionMethod,
 } from '@/types';
 import { addMonths, endOfMonth, differenceInDays, format } from 'date-fns';
 
@@ -400,13 +401,19 @@ export function normalizeRateToDecimal(rate: number, fieldName: string = 'rate')
 /**
  * Convert a rate from its source period to monthly.
  *
- * The Excel Forecast sheet uses the formula:
- *   monthly_rate = ROUND(1 - (1 - period_rate)^(1/n), 6)
+ * Two conversion methods are supported:
  *
- * Where n is the number of months in the source period:
- * - quarterly: n = 3 (3 months per quarter)
- * - annual: n = 12 (12 months per year)
- * - monthly: n = 1 (no conversion needed)
+ * 1. COMPOUND METHOD (mathematically correct):
+ *    monthly_rate = 1 - (1 - period_rate)^(1/n)
+ *    Where n is the number of months in the source period:
+ *    - quarterly: n = 3
+ *    - annual: n = 12
+ *
+ * 2. SIMPLE METHOD (Excel/Abrigo approach):
+ *    monthly_rate = annual_rate / 12
+ *    This treats "quarterly" rates as ANNUALIZED rates (not per-quarter).
+ *    Excel divides all rates by 12 regardless of whether they're labeled
+ *    "quarterly" or "annual".
  *
  * IMPORTANT: This conversion is for PD, Prepay, and Curtailment rates ONLY.
  * LGD is NOT a periodic rate - it's the loss percentage at default - so it
@@ -414,18 +421,31 @@ export function normalizeRateToDecimal(rate: number, fieldName: string = 'rate')
  *
  * @param rate - The rate in decimal form (e.g., 0.005449 for 0.5449%)
  * @param ratePeriod - The time period the rate represents
+ * @param conversionMethod - 'simple' (Excel/Abrigo) or 'compound' (mathematically correct)
  * @returns The equivalent monthly rate
  */
-export function convertRateToMonthly(rate: number, ratePeriod: RatePeriod): number {
+export function convertRateToMonthly(
+  rate: number,
+  ratePeriod: RatePeriod,
+  conversionMethod: RateConversionMethod = 'simple'
+): number {
   if (rate === 0 || rate === undefined || rate === null) {
     return 0;
   }
 
-  switch (ratePeriod) {
-    case 'monthly':
-      // Already monthly - no conversion needed
-      return rate;
+  // If already monthly, no conversion needed
+  if (ratePeriod === 'monthly') {
+    return rate;
+  }
 
+  // SIMPLE METHOD: Divide by 12 (Excel/Abrigo approach)
+  // Treats all non-monthly rates as annualized rates
+  if (conversionMethod === 'simple') {
+    return roundTo6Decimals(rate / 12);
+  }
+
+  // COMPOUND METHOD: Use mathematically correct formula
+  switch (ratePeriod) {
     case 'quarterly':
       // Convert quarterly to monthly: 1 - (1 - quarterly_rate)^(1/3)
       // Example: 0.5449% quarterly → 0.1823% monthly
@@ -437,7 +457,7 @@ export function convertRateToMonthly(rate: number, ratePeriod: RatePeriod): numb
       return roundTo6Decimals(1 - Math.pow(1 - rate, 1 / 12));
 
     default:
-      // Default to quarterly for backwards compatibility
+      // Default to quarterly compound conversion
       return roundTo6Decimals(1 - Math.pow(1 - rate, 1 / 3));
   }
 }
@@ -524,21 +544,25 @@ export function calculateDCF(
     errors.push('LGD forecast curve is empty');
   }
 
-  // Log the rate period being used for PD conversion
+  // Log the rate period and conversion method being used for PD conversion
   const pdRatePeriod: RatePeriod = pdCurve.ratePeriod || 'quarterly';
+  const pdConversionMethod: RateConversionMethod = pdCurve.conversionMethod || 'simple';
+
   if (!pdCurve.ratePeriod) {
     warnings.push(
       `PD rate period not specified - defaulting to "quarterly". ` +
       `If rates were extracted from monthly columns, set ratePeriod to "monthly" to avoid double-conversion.`
     );
+  }
+
+  // Informational: confirm what conversion method is being used
+  if (pdRatePeriod === 'monthly') {
+    warnings.push('PD rates are monthly - no conversion applied');
   } else {
-    // Informational: confirm what period is being used
-    const conversionInfo = pdRatePeriod === 'monthly'
-      ? 'PD rates are monthly - no conversion applied'
-      : pdRatePeriod === 'quarterly'
-        ? 'PD rates are quarterly - converting to monthly using 1-(1-rate)^(1/3)'
-        : 'PD rates are annual - converting to monthly using 1-(1-rate)^(1/12)';
-    warnings.push(conversionInfo);
+    const methodDesc = pdConversionMethod === 'simple'
+      ? `dividing by 12 (Excel/Abrigo method)`
+      : `compound formula 1-(1-rate)^(1/n)`;
+    warnings.push(`PD rates are ${pdRatePeriod} - converting to monthly by ${methodDesc}`);
   }
 
   // Normalize rates to ensure they are in decimal format
@@ -620,14 +644,14 @@ export function calculateDCF(
     const normalizedPdRate = pdNorm.value;
     const lgdRate = lgdNorm.value;
 
-    // Convert PD to monthly based on the source period (pdRatePeriod defined above)
+    // Convert PD to monthly based on the source period and conversion method
     // - 'monthly': No conversion needed (rate is already monthly)
-    // - 'quarterly': Convert using 1 - (1 - rate)^(1/3)
-    // - 'annual': Convert using 1 - (1 - rate)^(1/12)
+    // - 'quarterly'/'annual' with 'simple' method: Divide by 12 (Excel/Abrigo approach)
+    // - 'quarterly'/'annual' with 'compound' method: Use 1-(1-rate)^(1/n) formula
     //
     // NOTE: LGD is NOT converted - it's not a periodic rate, it's the loss
     // percentage applied at the time of default
-    const pdRate = convertRateToMonthly(normalizedPdRate, pdRatePeriod);
+    const pdRate = convertRateToMonthly(normalizedPdRate, pdRatePeriod, pdConversionMethod);
 
     // Calculate monthly interest rate (using normalized interest rate)
     const monthlyInterestRate = calculateMonthlyInterestRate(

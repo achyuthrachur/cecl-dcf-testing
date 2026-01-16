@@ -18,6 +18,19 @@
  */
 export type RatePeriod = 'monthly' | 'quarterly' | 'annual';
 
+/**
+ * Rate conversion method controls HOW rates are converted to monthly:
+ * - 'compound': Mathematically correct compound formula: 1-(1-rate)^(1/n)
+ *               This preserves the effective annual rate through compounding.
+ * - 'simple': Simple linear division: rate / 12
+ *               This is what Excel/Abrigo uses, treating "quarterly" rates as
+ *               annualized rates that should be divided by 12 to get monthly.
+ *
+ * IMPORTANT: Excel/Abrigo appears to use 'simple' division, so for matching
+ * their results, use 'simple'. For mathematically correct conversions, use 'compound'.
+ */
+export type RateConversionMethod = 'compound' | 'simple';
+
 export interface ForecastPeriod {
   startDate: Date;
   endDate: Date;
@@ -40,6 +53,14 @@ export interface ForecastCurve {
    * For LGD curves: Ignored (LGD is not a periodic rate)
    */
   ratePeriod?: RatePeriod;
+  /**
+   * The conversion method to use when converting rates to monthly.
+   * Defaults to 'simple' to match Excel/Abrigo behavior.
+   *
+   * - 'simple': Divides annual/quarterly rates by 12 (Excel/Abrigo method)
+   * - 'compound': Uses 1-(1-rate)^(1/n) formula (mathematically correct)
+   */
+  conversionMethod?: RateConversionMethod;
 }
 
 // ----------------------------------------------------------------------------
