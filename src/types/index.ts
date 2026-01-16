@@ -6,6 +6,18 @@
 // Forecast Types
 // ----------------------------------------------------------------------------
 
+/**
+ * Rate period indicates what time period the extracted rates represent.
+ * This is critical for proper conversion to monthly rates:
+ * - 'monthly': Rates are already monthly - NO conversion needed
+ * - 'quarterly': Rates are quarterly - convert using 1-(1-rate)^(1/3)
+ * - 'annual': Rates are annual - convert using 1-(1-rate)^(1/12)
+ *
+ * NOTE: LGD rates are NOT converted regardless of period - they represent
+ * the loss percentage at the time of default, not a periodic rate.
+ */
+export type RatePeriod = 'monthly' | 'quarterly' | 'annual';
+
 export interface ForecastPeriod {
   startDate: Date;
   endDate: Date;
@@ -20,6 +32,14 @@ export interface ForecastCurve {
   extractedAt: Date;
   imageUrl?: string;
   rawText?: string;
+  /**
+   * The time period that the extracted rates represent.
+   * Defaults to 'quarterly' for backwards compatibility with existing data.
+   *
+   * For PD curves: Controls how rates are converted to monthly
+   * For LGD curves: Ignored (LGD is not a periodic rate)
+   */
+  ratePeriod?: RatePeriod;
 }
 
 // ----------------------------------------------------------------------------

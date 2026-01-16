@@ -10,6 +10,7 @@ import {
   PaymentType,
   PaymentFrequency,
   AmortizationDays,
+  RatePeriod,
 } from '@/types';
 
 // ----------------------------------------------------------------------------
@@ -88,6 +89,17 @@ Extract ALL rows from the table. For each row, extract:
 1. The time period (start date and end date) - convert to ISO date format (YYYY-MM-DD)
 2. The rate value - convert percentages to decimal format (e.g., 1.5% becomes 0.015)
 
+CRITICAL - Determine the rate period:
+Look at the table headers and row labels to determine if rates are:
+- "monthly" - rows labeled as months (Month 1, Month 2, Jan, Feb, etc.) or header says "Monthly PD/LGD"
+- "quarterly" - rows labeled as quarters (Q1, Q2, Quarter 1, etc.) or header says "Quarterly PD/LGD"
+- "annual" - rows labeled as years (2024, 2025, Year 1, etc.) or header says "Annual PD/LGD"
+
+For PD rates specifically:
+- Monthly PD rates are typically very small (0.01% - 0.1%)
+- Quarterly PD rates are typically 0.1% - 2%
+- Annual PD rates are typically 1% - 10%
+
 Important:
 - Quarterly periods should be extracted as date ranges (e.g., Q1 2024 = 2024-01-01 to 2024-03-31)
 - Annual periods should be extracted as full year ranges
@@ -98,6 +110,9 @@ Important:
 Respond in this exact JSON format:
 {
   "type": "{type}",
+  "ratePeriod": "monthly" | "quarterly" | "annual",
+  "ratePeriodConfidence": 0.90,
+  "ratePeriodReasoning": "explain why you chose this period",
   "periods": [
     {
       "startDate": "YYYY-MM-DD",
@@ -112,6 +127,9 @@ Respond in this exact JSON format:
 
 interface ForecastExtractionResult {
   type: 'PD' | 'LGD';
+  ratePeriod: 'monthly' | 'quarterly' | 'annual';
+  ratePeriodConfidence: number;
+  ratePeriodReasoning?: string;
   periods: Array<{
     startDate: string;
     endDate: string;
@@ -130,6 +148,10 @@ export async function extractForecast(
   curve?: ForecastCurve;
   confidence: number;
   rawText?: string;
+  ratePeriod?: RatePeriod;
+  ratePeriodConfidence?: number;
+  ratePeriodReasoning?: string;
+  warnings?: string[];
   errors?: string[];
 }> {
   const client = getOpenAIClient();
@@ -177,19 +199,39 @@ export async function extractForecast(
       confidence: p.confidence,
     }));
 
+    // Validate and normalize rate period
+    const validRatePeriods: RatePeriod[] = ['monthly', 'quarterly', 'annual'];
+    const ratePeriod: RatePeriod = validRatePeriods.includes(parsed.ratePeriod as RatePeriod)
+      ? (parsed.ratePeriod as RatePeriod)
+      : 'quarterly'; // Default to quarterly for safety
+
     const curve: ForecastCurve = {
       id: `forecast-${type}-${Date.now()}`,
       type,
       periods,
       extractedAt: new Date(),
       rawText: parsed.rawText,
+      ratePeriod, // Include the detected rate period
     };
+
+    // Add warning if rate period detection confidence is low
+    const warnings: string[] = [];
+    if (parsed.ratePeriodConfidence < 0.8) {
+      warnings.push(
+        `Rate period detected as "${ratePeriod}" with low confidence (${(parsed.ratePeriodConfidence * 100).toFixed(0)}%). ` +
+        `Reason: ${parsed.ratePeriodReasoning || 'unknown'}. Please verify this is correct.`
+      );
+    }
 
     return {
       success: true,
       curve,
       confidence: parsed.overallConfidence,
       rawText: parsed.rawText,
+      ratePeriod,
+      ratePeriodConfidence: parsed.ratePeriodConfidence,
+      ratePeriodReasoning: parsed.ratePeriodReasoning,
+      warnings: warnings.length > 0 ? warnings : undefined,
     };
   } catch (error) {
     console.error('Forecast extraction error:', error);

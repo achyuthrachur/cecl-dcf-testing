@@ -10,6 +10,7 @@ import {
   PeriodCashFlow,
   CalculationResult,
   AmortizationDays,
+  RatePeriod,
 } from '@/types';
 import { addMonths, endOfMonth, differenceInDays, format } from 'date-fns';
 
@@ -393,6 +394,107 @@ export function normalizeRateToDecimal(rate: number, fieldName: string = 'rate')
 }
 
 // ----------------------------------------------------------------------------
+// Rate Period Conversion
+// ----------------------------------------------------------------------------
+
+/**
+ * Convert a rate from its source period to monthly.
+ *
+ * The Excel Forecast sheet uses the formula:
+ *   monthly_rate = ROUND(1 - (1 - period_rate)^(1/n), 6)
+ *
+ * Where n is the number of months in the source period:
+ * - quarterly: n = 3 (3 months per quarter)
+ * - annual: n = 12 (12 months per year)
+ * - monthly: n = 1 (no conversion needed)
+ *
+ * IMPORTANT: This conversion is for PD, Prepay, and Curtailment rates ONLY.
+ * LGD is NOT a periodic rate - it's the loss percentage at default - so it
+ * should NOT be converted.
+ *
+ * @param rate - The rate in decimal form (e.g., 0.005449 for 0.5449%)
+ * @param ratePeriod - The time period the rate represents
+ * @returns The equivalent monthly rate
+ */
+export function convertRateToMonthly(rate: number, ratePeriod: RatePeriod): number {
+  if (rate === 0 || rate === undefined || rate === null) {
+    return 0;
+  }
+
+  switch (ratePeriod) {
+    case 'monthly':
+      // Already monthly - no conversion needed
+      return rate;
+
+    case 'quarterly':
+      // Convert quarterly to monthly: 1 - (1 - quarterly_rate)^(1/3)
+      // Example: 0.5449% quarterly → 0.1823% monthly
+      return roundTo6Decimals(1 - Math.pow(1 - rate, 1 / 3));
+
+    case 'annual':
+      // Convert annual to monthly: 1 - (1 - annual_rate)^(1/12)
+      // Example: 2.2% annual → 0.185% monthly
+      return roundTo6Decimals(1 - Math.pow(1 - rate, 1 / 12));
+
+    default:
+      // Default to quarterly for backwards compatibility
+      return roundTo6Decimals(1 - Math.pow(1 - rate, 1 / 3));
+  }
+}
+
+/**
+ * Detect the likely rate period based on the rate magnitude and context.
+ * This is a heuristic and should be verified by the user.
+ *
+ * Typical PD rate ranges:
+ * - Monthly: 0.01% - 0.5% (0.0001 - 0.005)
+ * - Quarterly: 0.1% - 2% (0.001 - 0.02)
+ * - Annual: 0.5% - 10% (0.005 - 0.1)
+ *
+ * @param rate - The rate in decimal form
+ * @param curveType - 'PD' or 'LGD'
+ * @returns The detected rate period and confidence
+ */
+export function detectRatePeriod(rate: number, curveType: 'PD' | 'LGD'): {
+  period: RatePeriod;
+  confidence: number;
+  reasoning: string;
+} {
+  // LGD is not a periodic rate - it's always just a percentage
+  if (curveType === 'LGD') {
+    return {
+      period: 'quarterly', // Doesn't matter for LGD, but return something sensible
+      confidence: 1.0,
+      reasoning: 'LGD is not a periodic rate - no conversion needed'
+    };
+  }
+
+  // For PD rates, use magnitude to guess the period
+  if (rate < 0.001) {
+    // Very small rate (< 0.1%) - likely already monthly
+    return {
+      period: 'monthly',
+      confidence: 0.7,
+      reasoning: `Rate ${(rate * 100).toFixed(4)}% is very small, likely already monthly`
+    };
+  } else if (rate < 0.015) {
+    // Small rate (0.1% - 1.5%) - likely quarterly
+    return {
+      period: 'quarterly',
+      confidence: 0.8,
+      reasoning: `Rate ${(rate * 100).toFixed(4)}% is in typical quarterly PD range`
+    };
+  } else {
+    // Larger rate (> 1.5%) - likely annual
+    return {
+      period: 'annual',
+      confidence: 0.6,
+      reasoning: `Rate ${(rate * 100).toFixed(4)}% is larger, possibly annual`
+    };
+  }
+}
+
+// ----------------------------------------------------------------------------
 // Main Calculation Engine
 // ----------------------------------------------------------------------------
 
@@ -420,6 +522,23 @@ export function calculateDCF(
   }
   if (!lgdCurve.periods || lgdCurve.periods.length === 0) {
     errors.push('LGD forecast curve is empty');
+  }
+
+  // Log the rate period being used for PD conversion
+  const pdRatePeriod: RatePeriod = pdCurve.ratePeriod || 'quarterly';
+  if (!pdCurve.ratePeriod) {
+    warnings.push(
+      `PD rate period not specified - defaulting to "quarterly". ` +
+      `If rates were extracted from monthly columns, set ratePeriod to "monthly" to avoid double-conversion.`
+    );
+  } else {
+    // Informational: confirm what period is being used
+    const conversionInfo = pdRatePeriod === 'monthly'
+      ? 'PD rates are monthly - no conversion applied'
+      : pdRatePeriod === 'quarterly'
+        ? 'PD rates are quarterly - converting to monthly using 1-(1-rate)^(1/3)'
+        : 'PD rates are annual - converting to monthly using 1-(1-rate)^(1/12)';
+    warnings.push(conversionInfo);
   }
 
   // Normalize rates to ensure they are in decimal format
@@ -482,13 +601,33 @@ export function calculateDCF(
     // Get cumulative days for discounting
     const cumulativeDays = getCumulativeDays(calculationDate, periodDate);
 
-    // Get forecast rates for this period (these are annual rates)
-    const annualPdRate = getForecastRate(pdCurve, periodDate);
-    const lgdRate = getForecastRate(lgdCurve, periodDate);
+    // Get forecast rates for this period
+    // These rates could be monthly, quarterly, or annual depending on the source
+    const rawPdRate = getForecastRate(pdCurve, periodDate);
+    const rawLgdRate = getForecastRate(lgdCurve, periodDate);
 
-    // Convert annual PD to monthly: Monthly PD = 1 - (1 - Annual PD)^(1/12)
-    // This ensures proper compounding when applied monthly
-    const pdRate = 1 - Math.pow(1 - annualPdRate, 1 / 12);
+    // Normalize PD/LGD rates in case they were provided as percentages
+    // This is critical - rates might be extracted as 1.5 for "1.5%" instead of 0.015
+    const pdNorm = normalizeRateToDecimal(rawPdRate, 'PD Rate');
+    const lgdNorm = normalizeRateToDecimal(rawLgdRate, 'LGD Rate');
+
+    // Only add warnings once (first period) to avoid spam
+    if (period === 1) {
+      if (pdNorm.warning) warnings.push(pdNorm.warning);
+      if (lgdNorm.warning) warnings.push(lgdNorm.warning);
+    }
+
+    const normalizedPdRate = pdNorm.value;
+    const lgdRate = lgdNorm.value;
+
+    // Convert PD to monthly based on the source period (pdRatePeriod defined above)
+    // - 'monthly': No conversion needed (rate is already monthly)
+    // - 'quarterly': Convert using 1 - (1 - rate)^(1/3)
+    // - 'annual': Convert using 1 - (1 - rate)^(1/12)
+    //
+    // NOTE: LGD is NOT converted - it's not a periodic rate, it's the loss
+    // percentage applied at the time of default
+    const pdRate = convertRateToMonthly(normalizedPdRate, pdRatePeriod);
 
     // Calculate monthly interest rate (using normalized interest rate)
     const monthlyInterestRate = calculateMonthlyInterestRate(
@@ -610,6 +749,46 @@ export function calculateDCF(
     // Early exit if balance is zero
     if (balance <= 0.01) {
       break;
+    }
+  }
+
+  // Handle balloon payment at maturity (remaining balance after all scheduled payments)
+  // This is critical for loans that don't fully amortize
+  if (balance > 0.01 && cashFlows.length > 0) {
+    const lastCashFlow = cashFlows[cashFlows.length - 1];
+    // Add balloon to the last period's cash flow
+    const balloonPV = balance * lastCashFlow.discountFactor;
+    lastCashFlow.totalCashFlow += balance;
+    lastCashFlow.presentValue += balloonPV;
+    lastCashFlow.scheduledPrincipal += balance;
+    lastCashFlow.endingBalance = 0;
+    warnings.push(`Balloon payment of $${balance.toFixed(2)} added at maturity`);
+  }
+
+  // Capture any pending recoveries that extend beyond the loan term
+  // These should still be discounted and included in NPV
+  const lastPeriod = cashFlows.length > 0 ? cashFlows[cashFlows.length - 1].period : loan.periods;
+  const remainingRecoveries = pendingRecoveries.filter(r => r.period > lastPeriod);
+
+  if (remainingRecoveries.length > 0) {
+    let totalRemainingRecovery = 0;
+    for (const recovery of remainingRecoveries) {
+      // Discount the recovery back to present value
+      const recoveryDiscountFactor = calculateDiscountFactor(
+        effectiveYield,
+        recovery.period,
+        recovery.period * 30, // Approximate days for discounting
+        loan.amortizationDays
+      );
+      totalRemainingRecovery += recovery.amount * recoveryDiscountFactor;
+    }
+
+    if (totalRemainingRecovery > 0 && cashFlows.length > 0) {
+      // Add to last period's present value
+      const lastCF = cashFlows[cashFlows.length - 1];
+      lastCF.presentValue += totalRemainingRecovery;
+      lastCF.recoveryAmount += remainingRecoveries.reduce((sum, r) => sum + r.amount, 0);
+      warnings.push(`Deferred recoveries of $${remainingRecoveries.reduce((sum, r) => sum + r.amount, 0).toFixed(2)} captured after loan term`);
     }
   }
 
