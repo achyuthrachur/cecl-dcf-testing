@@ -51,12 +51,32 @@ export function getDaysInPeriod(
 
 /**
  * Get cumulative days from calculation date for discounting
+ *
+ * IMPORTANT: Excel's "Running Total" appears to count from ONE MONTH BEFORE
+ * the calculation date. For example, if calculation date is 6/30/2025:
+ * - Period 1 (7/31/2025): Running Total = 62 days (counting from 5/30/2025)
+ * - Period 2 (8/31/2025): Running Total = 92 days
+ *
+ * This adds approximately one month (31 days) to the discount period.
+ * We use the addDiscountOffset parameter to match this behavior.
  */
 export function getCumulativeDays(
   calculationDate: Date,
-  periodDate: Date
+  periodDate: Date,
+  addDiscountOffset: boolean = true
 ): number {
-  return differenceInDays(periodDate, calculationDate);
+  const baseDays = differenceInDays(periodDate, calculationDate);
+
+  // Add one month offset to match Excel's "Running Total" behavior
+  // This is approximately 31 days for the first period
+  if (addDiscountOffset) {
+    // Get days in the previous month for accurate offset
+    const prevMonth = addMonths(calculationDate, -1);
+    const daysOffset = differenceInDays(calculationDate, endOfMonth(prevMonth));
+    return baseDays + daysOffset;
+  }
+
+  return baseDays;
 }
 
 // ----------------------------------------------------------------------------
@@ -208,6 +228,50 @@ function roundTo2Decimals(value: number): number {
  */
 function roundTo6Decimals(value: number): number {
   return Math.round(value * 1000000) / 1000000;
+}
+
+// ----------------------------------------------------------------------------
+// Reamortization Calculation
+// ----------------------------------------------------------------------------
+
+/**
+ * Calculate the reamortized payment amount for a given period.
+ *
+ * Excel's reamortization recalculates the payment each period based on:
+ * - Current balance (after previous period's principal, prepay, default reductions)
+ * - Remaining amortization term (original term minus elapsed periods)
+ * - Monthly interest rate
+ *
+ * Formula: PMT = Balance × (r × (1+r)^n) / ((1+r)^n - 1)
+ * where:
+ *   r = monthly interest rate
+ *   n = remaining amortization periods
+ *
+ * @param balance - Current beginning balance for the period
+ * @param monthlyRate - Monthly interest rate (e.g., 0.002875 for 3.45%/12)
+ * @param remainingAmortPeriods - Remaining periods in the amortization schedule
+ * @returns The calculated payment amount
+ */
+export function calculateReamortizedPayment(
+  balance: number,
+  monthlyRate: number,
+  remainingAmortPeriods: number
+): number {
+  if (balance <= 0 || remainingAmortPeriods <= 0) {
+    return 0;
+  }
+
+  // Handle zero interest rate edge case
+  if (monthlyRate <= 0) {
+    return roundTo2Decimals(balance / remainingAmortPeriods);
+  }
+
+  // Standard amortization formula: PMT = P × (r(1+r)^n) / ((1+r)^n - 1)
+  const onePlusR = 1 + monthlyRate;
+  const onePlusRPowN = Math.pow(onePlusR, remainingAmortPeriods);
+  const payment = balance * (monthlyRate * onePlusRPowN) / (onePlusRPowN - 1);
+
+  return roundTo2Decimals(payment);
 }
 
 // ----------------------------------------------------------------------------
@@ -663,11 +727,31 @@ export function calculateDCF(
     // Calculate interest payment (with rounding per Excel)
     const interestPayment = roundTo2Decimals(calculateInterestPayment(balance, monthlyInterestRate));
 
+    // Calculate payment amount - either fixed or reamortized
+    let paymentAmountForPeriod = loan.paymentAmount;
+
+    if (loan.reamortize && loan.amortizationTerm) {
+      // Reamortize: recalculate payment based on current balance and remaining amort term
+      // Excel's "Am Thru" decreases by 2 each period (for monthly payments)
+      // Starting from original amortizationTerm, subtract periods elapsed
+      const remainingAmortPeriods = loan.amortizationTerm - (period - 1);
+
+      if (remainingAmortPeriods > 0) {
+        // Use a simple monthly rate for reamortization (annual rate / 12)
+        const simpleMonthlyRate = interestRate / 12;
+        paymentAmountForPeriod = calculateReamortizedPayment(
+          balance,
+          simpleMonthlyRate,
+          remainingAmortPeriods
+        );
+      }
+    }
+
     // Calculate scheduled principal (pass curtailmentRate for Interest Only loans)
     const scheduledPrincipal = calculateScheduledPrincipal(
       balance,
       interestPayment,
-      loan.paymentAmount,
+      paymentAmountForPeriod,
       loan.paymentType,
       remainingPeriods,
       curtailmentRate

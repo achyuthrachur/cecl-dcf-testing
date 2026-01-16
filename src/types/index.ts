@@ -110,6 +110,10 @@ export interface LoanInput {
   maturityDate: Date;
   periods: number;            // Number of periods to calculate
 
+  // Reamortization settings
+  reamortize?: boolean;       // Whether to recalculate payment each period
+  amortizationTerm?: number;  // Original amortization term in months (e.g., 255)
+
   // Prepayment assumptions (stored as decimals)
   cpr: number;                // Conditional Prepayment Rate (annual)
   curtailmentRate: number;    // Additional curtailment rate
