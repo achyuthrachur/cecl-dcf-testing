@@ -257,6 +257,120 @@ function roundTo6Decimals(value: number): number {
 // ----------------------------------------------------------------------------
 
 /**
+ * Infer amortization term (in months) from loan parameters when not explicitly provided.
+ *
+ * Uses a binary search to find the number of periods n such that:
+ * PMT(P, r, n) ≈ loan.paymentAmount
+ *
+ * This matches Excel's "Inferred Am Thru / Amortization Term" concept.
+ *
+ * @param loan - The loan input containing bookBalance and paymentAmount
+ * @param monthlyRateForPMT - Monthly interest rate for PMT calculation
+ * @returns The inferred amortization term in months, or null if inference fails
+ */
+export function getAmortizationTermMonths(
+  loan: LoanInput,
+  monthlyRateForPMT: number
+): { term: number | null; warning?: string } {
+  // If amortization term is explicitly provided and valid, use it
+  if (loan.amortizationTerm && loan.amortizationTerm > 0) {
+    return { term: loan.amortizationTerm };
+  }
+
+  // Only attempt inference if reamortize is true
+  if (!loan.reamortize) {
+    return { term: null };
+  }
+
+  // Need valid payment amount and balance to infer
+  if (!loan.paymentAmount || loan.paymentAmount <= 0 || !loan.bookBalance || loan.bookBalance <= 0) {
+    return {
+      term: null,
+      warning: 'Cannot infer amortization term: payment amount or book balance is missing/invalid'
+    };
+  }
+
+  const P = loan.bookBalance;
+  const r = monthlyRateForPMT;
+  const targetPMT = loan.paymentAmount;
+
+  // Handle zero interest rate case
+  if (r <= 0) {
+    // For zero rate: PMT = P / n, so n = P / PMT
+    const inferredTerm = Math.round(P / targetPMT);
+    if (inferredTerm > 0 && inferredTerm <= 1200) {
+      return { term: inferredTerm };
+    }
+    return {
+      term: null,
+      warning: `Cannot infer amortization term with zero interest rate: inferred ${inferredTerm} months`
+    };
+  }
+
+  // Check if payment covers at least the monthly interest
+  const monthlyInterest = P * r;
+  if (targetPMT <= monthlyInterest) {
+    return {
+      term: null,
+      warning: `Cannot infer amortization term: payment ($${targetPMT.toFixed(2)}) is less than or equal to monthly interest ($${monthlyInterest.toFixed(2)})`
+    };
+  }
+
+  // Binary search for n such that PMT(P, r, n) ≈ targetPMT
+  // PMT = P × (r(1+r)^n) / ((1+r)^n - 1)
+  // We search for n in range [1, 1200] (up to 100 years)
+  let low = 1;
+  let high = 1200;
+  let bestN = 0;
+  let bestDiff = Infinity;
+
+  // Helper to calculate PMT for a given n
+  const calcPMT = (n: number): number => {
+    const onePlusR = 1 + r;
+    const onePlusRPowN = Math.pow(onePlusR, n);
+    return P * (r * onePlusRPowN) / (onePlusRPowN - 1);
+  };
+
+  // Binary search
+  while (low <= high) {
+    const mid = Math.floor((low + high) / 2);
+    const pmt = calcPMT(mid);
+    const diff = Math.abs(pmt - targetPMT);
+
+    if (diff < bestDiff) {
+      bestDiff = diff;
+      bestN = mid;
+    }
+
+    // Higher n means lower payment
+    if (pmt > targetPMT) {
+      low = mid + 1;
+    } else {
+      high = mid - 1;
+    }
+  }
+
+  // Accept if within 1% tolerance
+  const tolerance = targetPMT * 0.01;
+  if (bestDiff <= tolerance && bestN > 0) {
+    return { term: bestN };
+  }
+
+  // If not close enough, return best guess with warning
+  if (bestN > 0 && bestN <= 1200) {
+    return {
+      term: bestN,
+      warning: `Amortization term inferred as ${bestN} months (PMT difference: $${bestDiff.toFixed(2)} from target $${targetPMT.toFixed(2)})`
+    };
+  }
+
+  return {
+    term: null,
+    warning: `Could not infer amortization term: best guess ${bestN} months with PMT difference $${bestDiff.toFixed(2)}`
+  };
+}
+
+/**
  * Calculate the reamortized payment amount for a given period.
  *
  * Excel's reamortization recalculates the payment each period based on:
@@ -729,6 +843,28 @@ export function calculateDCF(
   let balloonAmount = 0;
   let balloonPeriod = 0;
 
+  // ============================================================================
+  // REAMORTIZATION SETUP (Pre-loop calculation)
+  // ============================================================================
+  // Calculate the monthly rate for PMT that matches Excel's approach
+  // Excel treats the amort multiplier (365/360) as part of the effective rate
+  const amortMultiplier = getAmortizationMultiplier(loan.amortizationDays);
+  const monthlyRateForPMT = (interestRate * amortMultiplier) / 12;
+
+  // Get or infer amortization term (only computed once, before the loop)
+  const amortTermResult = getAmortizationTermMonths(loan, monthlyRateForPMT);
+  const effectiveAmortTerm = amortTermResult.term;
+
+  // Add warning if term was inferred or couldn't be determined
+  if (amortTermResult.warning) {
+    warnings.push(amortTermResult.warning);
+  }
+
+  // Track reamortization for debug info
+  let reamortizationApplied = false;
+  let reamortPaymentUsed = 0;
+  let remainingAmortPeriodsUsed = 0;
+
   // Calculate each period
   let previousDate = calculationDate;
 
@@ -796,67 +932,101 @@ export function calculateDCF(
       // Calculate payment amount - either fixed or reamortized
       let paymentAmountForPeriod = loan.paymentAmount;
 
-      if (loan.reamortize && loan.amortizationTerm) {
-        // Reamortize: recalculate payment based on current balance and remaining amort term
-        // Excel's "Am Thru" decreases by 2 each period (for semi-monthly payment frequency)
-        // For monthly payments, it decreases by 1 each period
-        // Using decrement of 2 to match Excel template behavior
-        const decrementPerPeriod = 2; // Excel uses 2 for this template
-        const remainingAmortPeriods = loan.amortizationTerm - decrementPerPeriod * (period - 1);
+      // Reamortization: recalculate payment based on current balance and remaining amort term
+      // Only apply if reamortize flag is true AND we have a valid amortization term
+      if (loan.reamortize && effectiveAmortTerm && effectiveAmortTerm > 0) {
+        // For monthly schedule periods, decrement by 1 each period
+        // (The schedule is monthly-period-based with EOM dates)
+        const decrementPerPeriod = 1;
+        const remainingAmortPeriods = effectiveAmortTerm - decrementPerPeriod * (period - 1);
 
         if (remainingAmortPeriods > 0) {
-          // Use a simple monthly rate for reamortization (annual rate / 12)
-          const simpleMonthlyRate = interestRate / 12;
+          // Use monthlyRateForPMT which includes the amortization multiplier
+          // This matches Excel's treatment of Actual/360 instruments
           paymentAmountForPeriod = calculateReamortizedPayment(
             balance,
-            simpleMonthlyRate,
+            monthlyRateForPMT,
             remainingAmortPeriods
           );
+
+          // Track for debug info
+          reamortizationApplied = true;
+          reamortPaymentUsed = paymentAmountForPeriod;
+          remainingAmortPeriodsUsed = remainingAmortPeriods;
         }
       }
 
-      // Calculate remaining periods for principal calculation
-      const remainingPeriods = contractualPeriods - i;
+      // ======================================================================
+      // MATURITY PERIOD: Payoff-first ordering (Excel-style)
+      // At maturity, the loan is contractually paid off before any prepay/default
+      // ======================================================================
+      if (isMaturityPeriod) {
+        // At maturity: full payoff of remaining balance
+        scheduledPrincipal = roundTo2Decimals(balance);
 
-      // Calculate scheduled principal
-      scheduledPrincipal = calculateScheduledPrincipal(
-        balance,
-        interestPayment,
-        paymentAmountForPeriod,
-        loan.paymentType,
-        remainingPeriods,
-        curtailmentRate
-      );
+        // Force these to zero - no prepay/default at maturity (Excel behavior)
+        prepayment = 0;
+        defaultAmount = 0;
+        lossAmount = 0;
+        recoveryAtDefault = 0;
+        // Note: Don't push any new pendingRecoveries at maturity
 
-      // Calculate prepayment
-      prepayment = calculatePrepayment(
-        balance,
-        scheduledPrincipal,
-        smm,
-        curtailmentRate,
-        loan.paymentType
-      );
+        // Track balloon for debug info
+        balloonAmount = scheduledPrincipal;
+        balloonApplied = true;
+        balloonPeriod = period;
 
-      // Calculate default
-      defaultAmount = calculateDefault(
-        balance,
-        scheduledPrincipal,
-        prepayment,
-        pdRate
-      );
+        if (balance > 0.01) {
+          warnings.push(`Maturity payoff of $${scheduledPrincipal.toFixed(2)} applied at period ${period}`);
+        }
+      }
+      // ======================================================================
+      // NON-MATURITY PRE-MATURITY PERIODS: Normal calculation
+      // ======================================================================
+      else {
+        // Calculate remaining periods for principal calculation
+        const remainingPeriods = contractualPeriods - i;
 
-      // Calculate loss
-      lossAmount = calculateLoss(defaultAmount, lgdRate);
+        // Calculate scheduled principal
+        scheduledPrincipal = calculateScheduledPrincipal(
+          balance,
+          interestPayment,
+          paymentAmountForPeriod,
+          loan.paymentType,
+          remainingPeriods,
+          curtailmentRate
+        );
 
-      // Calculate recovery (will be delayed)
-      recoveryAtDefault = calculateRecovery(defaultAmount, lossAmount);
+        // Calculate prepayment
+        prepayment = calculatePrepayment(
+          balance,
+          scheduledPrincipal,
+          smm,
+          curtailmentRate,
+          loan.paymentType
+        );
 
-      // Store recovery for delayed release
-      if (recoveryAtDefault > 0) {
-        pendingRecoveries.push({
-          period: period + loan.recoveryDelay,
-          amount: recoveryAtDefault,
-        });
+        // Calculate default
+        defaultAmount = calculateDefault(
+          balance,
+          scheduledPrincipal,
+          prepayment,
+          pdRate
+        );
+
+        // Calculate loss
+        lossAmount = calculateLoss(defaultAmount, lgdRate);
+
+        // Calculate recovery (will be delayed)
+        recoveryAtDefault = calculateRecovery(defaultAmount, lossAmount);
+
+        // Store recovery for delayed release
+        if (recoveryAtDefault > 0) {
+          pendingRecoveries.push({
+            period: period + loan.recoveryDelay,
+            amount: recoveryAtDefault,
+          });
+        }
       }
     }
     // ========================================================================
@@ -864,27 +1034,6 @@ export function calculateDCF(
     // ========================================================================
     // isPostMaturity means we're in the recovery tail
     // All balance-related values are already 0 from initialization
-
-    // ========================================================================
-    // MATURITY PERIOD: Handle balloon payment
-    // ========================================================================
-    if (isMaturityPeriod && balance > 0.01) {
-      // Calculate ending balance before balloon
-      const endingBeforeBalloon = Math.max(
-        0,
-        balance - scheduledPrincipal - prepayment - defaultAmount
-      );
-
-      // Balloon is the remaining balance at maturity
-      balloonAmount = endingBeforeBalloon;
-      balloonApplied = true;
-      balloonPeriod = period;
-
-      // Add balloon to scheduled principal for this period
-      scheduledPrincipal += balloonAmount;
-
-      warnings.push(`Balloon payment of $${balloonAmount.toFixed(2)} applied at maturity period ${period}`);
-    }
 
     // Get actual recovery for this period (from delayed recoveries)
     const recoveryAmount = pendingRecoveries
@@ -1020,6 +1169,12 @@ export function calculateDCF(
     pendingRecoveriesAtMaturity,
     pendingRecoveriesAtFinal,
     totalRecoveriesInTail,
+    // Reamortization tracking
+    reamortizationApplied,
+    effectiveAmortTerm,
+    monthlyRateForPMT,
+    reamortPaymentUsed,
+    remainingAmortPeriodsUsed,
   };
 
   return {

@@ -199,6 +199,13 @@ export interface ScheduleDebugInfo {
   pendingRecoveriesAtMaturity: number;
   pendingRecoveriesAtFinal: number;
   totalRecoveriesInTail: number;
+
+  // Reamortization tracking
+  reamortizationApplied: boolean;       // Whether reamortization was used
+  effectiveAmortTerm: number | null;    // The amortization term used (explicit or inferred)
+  monthlyRateForPMT: number;            // The monthly rate used for PMT calculation
+  reamortPaymentUsed: number;           // Last reamortized payment calculated
+  remainingAmortPeriodsUsed: number;    // Last remaining amort periods used
 }
 
 export interface CalculationResult {
