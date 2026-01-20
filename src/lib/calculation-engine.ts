@@ -13,7 +13,44 @@ import {
   RateConversionMethod,
   ScheduleDebugInfo,
 } from '@/types';
-import { addMonths, endOfMonth, differenceInDays, differenceInCalendarMonths } from 'date-fns';
+import { endOfMonth, differenceInDays, differenceInCalendarMonths } from 'date-fns';
+
+// ----------------------------------------------------------------------------
+// UTC Date Helpers
+// ----------------------------------------------------------------------------
+
+/**
+ * Get end of month in UTC to avoid timezone issues.
+ * The date-fns endOfMonth function uses local timezone which causes
+ * off-by-one errors when displayed in UTC.
+ */
+function endOfMonthUTC(date: Date): Date {
+  const year = date.getUTCFullYear();
+  const month = date.getUTCMonth();
+  // Get the last day of the month by going to the 0th day of next month
+  const lastDay = new Date(Date.UTC(year, month + 1, 0));
+  return lastDay;
+}
+
+/**
+ * Add months to a date in UTC
+ */
+function addMonthsUTC(date: Date, months: number): Date {
+  const year = date.getUTCFullYear();
+  const month = date.getUTCMonth();
+  const day = date.getUTCDate();
+  return new Date(Date.UTC(year, month + months, day));
+}
+
+/**
+ * Calculate difference in days between two dates (UTC-based)
+ */
+function differenceInDaysUTC(dateLeft: Date, dateRight: Date): number {
+  const MS_PER_DAY = 1000 * 60 * 60 * 24;
+  const utcLeft = Date.UTC(dateLeft.getUTCFullYear(), dateLeft.getUTCMonth(), dateLeft.getUTCDate());
+  const utcRight = Date.UTC(dateRight.getUTCFullYear(), dateRight.getUTCMonth(), dateRight.getUTCDate());
+  return Math.floor((utcLeft - utcRight) / MS_PER_DAY);
+}
 
 // ----------------------------------------------------------------------------
 // Date Utilities
@@ -21,6 +58,7 @@ import { addMonths, endOfMonth, differenceInDays, differenceInCalendarMonths } f
 
 /**
  * Generate end-of-month dates for the loan schedule
+ * Uses UTC-based date handling to avoid timezone issues
  */
 export function generateScheduleDates(
   calculationDate: Date,
@@ -28,7 +66,9 @@ export function generateScheduleDates(
 ): Date[] {
   const dates: Date[] = [];
   for (let i = 1; i <= periods; i++) {
-    const date = endOfMonth(addMonths(calculationDate, i));
+    // Use UTC functions to avoid timezone issues
+    const futureDate = addMonthsUTC(calculationDate, i);
+    const date = endOfMonthUTC(futureDate);
     dates.push(date);
   }
   return dates;
@@ -58,6 +98,7 @@ export function getMaturityPeriod(calculationDate: Date, maturityDate: Date): nu
 
 /**
  * Get the number of days in a period for Actual/360 calculation
+ * Uses UTC-based calculation to avoid timezone issues
  */
 export function getDaysInPeriod(
   periodStart: Date,
@@ -65,7 +106,7 @@ export function getDaysInPeriod(
   amortizationDays: AmortizationDays
 ): number {
   if (amortizationDays === 'Actual 360' || amortizationDays === 'Actual 365') {
-    return differenceInDays(periodEnd, periodStart);
+    return differenceInDaysUTC(periodEnd, periodStart);
   }
   // 30/360 convention
   return 30;
@@ -73,28 +114,27 @@ export function getDaysInPeriod(
 
 /**
  * Get cumulative days from calculation date for discounting
+ * Uses UTC-based calculation to avoid timezone issues
  *
- * IMPORTANT: Excel's "Running Total" appears to count from ONE MONTH BEFORE
- * the calculation date. For example, if calculation date is 6/30/2025:
- * - Period 1 (7/31/2025): Running Total = 62 days (counting from 5/30/2025)
- * - Period 2 (8/31/2025): Running Total = 92 days
- *
- * This adds approximately one month (31 days) to the discount period.
- * We use the addDiscountOffset parameter to match this behavior.
+ * NOTE: The addDiscountOffset parameter was previously used to add ~30 days
+ * to match an observed Excel "Running Total" behavior. However, testing shows
+ * this offset causes over-discounting for most loans. It is now disabled by
+ * default (false). Set to true only if you're matching a specific Excel model
+ * that uses this offset.
  */
 export function getCumulativeDays(
   calculationDate: Date,
   periodDate: Date,
-  addDiscountOffset: boolean = true
+  addDiscountOffset: boolean = false  // Changed default to false
 ): number {
-  const baseDays = differenceInDays(periodDate, calculationDate);
+  const baseDays = differenceInDaysUTC(periodDate, calculationDate);
 
-  // Add one month offset to match Excel's "Running Total" behavior
-  // This is approximately 31 days for the first period
+  // Add one month offset only if explicitly requested
+  // Most Excel models do NOT use this offset
   if (addDiscountOffset) {
     // Get days in the previous month for accurate offset
-    const prevMonth = addMonths(calculationDate, -1);
-    const daysOffset = differenceInDays(calculationDate, endOfMonth(prevMonth));
+    const prevMonth = addMonthsUTC(calculationDate, -1);
+    const daysOffset = differenceInDaysUTC(calculationDate, endOfMonthUTC(prevMonth));
     return baseDays + daysOffset;
   }
 
