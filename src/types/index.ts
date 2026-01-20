@@ -172,6 +172,35 @@ export interface PeriodCashFlow {
   cumulativeRecovery: number;
 }
 
+/**
+ * Debug information for schedule generation diagnostics.
+ * Helps identify mismatches between calculated and expected values.
+ */
+export interface ScheduleDebugInfo {
+  // Period derivation
+  inputPeriods: number;           // Original loan.periods value
+  derivedMaturityPeriod: number;  // Periods derived from maturityDate
+  totalPeriods: number;           // maturityPeriod + recoveryDelay - 1
+  periodsOverridden: boolean;     // Whether input periods differed from derived
+
+  // Key dates
+  calculationDate: Date;
+  maturityDate: Date;
+  maturityPeriodDate: Date;       // End date of the maturity period
+  finalPeriodDate: Date;          // End date of the last period (including recovery tail)
+
+  // Balloon handling
+  balloonApplied: boolean;
+  balloonAmount: number;
+  balloonPeriod: number;
+
+  // Recovery tail info
+  recoveryDelay: number;
+  pendingRecoveriesAtMaturity: number;
+  pendingRecoveriesAtFinal: number;
+  totalRecoveriesInTail: number;
+}
+
 export interface CalculationResult {
   id: string;
   loanId: string;
@@ -207,6 +236,9 @@ export interface CalculationResult {
   valid: boolean;
   warnings: string[];
   errors: string[];
+
+  // Debug info for diagnostics (optional)
+  debugInfo?: ScheduleDebugInfo;
 }
 
 // ----------------------------------------------------------------------------

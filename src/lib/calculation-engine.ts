@@ -6,14 +6,14 @@
 import {
   LoanInput,
   ForecastCurve,
-  ForecastPeriod,
   PeriodCashFlow,
   CalculationResult,
   AmortizationDays,
   RatePeriod,
   RateConversionMethod,
+  ScheduleDebugInfo,
 } from '@/types';
-import { addMonths, endOfMonth, differenceInDays, format } from 'date-fns';
+import { addMonths, endOfMonth, differenceInDays, differenceInCalendarMonths } from 'date-fns';
 
 // ----------------------------------------------------------------------------
 // Date Utilities
@@ -32,6 +32,28 @@ export function generateScheduleDates(
     dates.push(date);
   }
   return dates;
+}
+
+/**
+ * Calculate the number of months (periods) from calculation date to maturity date.
+ * This is used to determine when the loan contractually matures, independent of loan.periods.
+ *
+ * Excel uses end-of-month alignment for both dates.
+ *
+ * @param calculationDate - The as-of date for the calculation
+ * @param maturityDate - The loan's contractual maturity date
+ * @returns Number of months between calculation date and maturity date (minimum 1)
+ */
+export function getMaturityPeriod(calculationDate: Date, maturityDate: Date): number {
+  // Align both dates to end of month for consistent comparison
+  const calcEOM = endOfMonth(new Date(calculationDate));
+  const maturityEOM = endOfMonth(new Date(maturityDate));
+
+  // Calculate the difference in calendar months
+  const monthsDiff = differenceInCalendarMonths(maturityEOM, calcEOM);
+
+  // Ensure minimum of 1 period
+  return Math.max(1, monthsDiff);
 }
 
 /**
@@ -185,7 +207,7 @@ export function calculateScheduledPrincipal(
   interestPayment: number,
   paymentAmount: number,
   paymentType: string,
-  remainingPeriods: number,
+  _remainingPeriods: number,  // Kept for API compatibility
   curtailmentRate: number = 0
 ): number {
   switch (paymentType) {
@@ -584,6 +606,11 @@ export function detectRatePeriod(rate: number, curveType: 'PD' | 'LGD'): {
 
 /**
  * Run the full DCF calculation for a loan
+ *
+ * Key behaviors matching Excel:
+ * 1. Contractual cash flows stop at maturity (balloon payoff at maturity month)
+ * 2. Recovery tail continues after maturity for recoveryDelay months
+ * 3. Post-maturity periods have zero balance activity (only delayed recoveries)
  */
 export function calculateDCF(
   loan: LoanInput,
@@ -630,7 +657,6 @@ export function calculateDCF(
   }
 
   // Normalize rates to ensure they are in decimal format
-  // This handles cases where rates were extracted/entered as percentages (e.g., 3.5 instead of 0.035)
   const effectiveYieldNorm = normalizeRateToDecimal(loan.effectiveYield, 'Effective Yield');
   const interestRateNorm = normalizeRateToDecimal(loan.interestRate, 'Interest Rate');
   const cprNorm = normalizeRateToDecimal(loan.cpr || 0, 'CPR');
@@ -651,9 +677,36 @@ export function calculateDCF(
   const normalizedSmm = smmNorm.value;
   const curtailmentRate = curtailmentNorm.value;
 
-  // Generate schedule dates
+  // ============================================================================
+  // PERIOD DERIVATION FROM MATURITY DATE (Key fix for Excel matching)
+  // ============================================================================
   const calculationDate = new Date(loan.calculationDate);
-  const scheduleDates = generateScheduleDates(calculationDate, loan.periods);
+  const maturityDate = new Date(loan.maturityDate);
+
+  // Derive the contractual maturity period from maturityDate
+  // This is the period when the balloon payment occurs (if any)
+  const contractualPeriods = getMaturityPeriod(calculationDate, maturityDate);
+
+  // Total periods = contractual periods + recovery delay tail
+  // The tail allows delayed recoveries to be released after maturity
+  // recoveryDelay - 1 because the first recovery can occur in the last contractual period
+  const totalPeriods = contractualPeriods + Math.max(0, loan.recoveryDelay - 1);
+
+  // Check if loan.periods differs from derived values and warn
+  const periodsOverridden = loan.periods !== contractualPeriods;
+  if (periodsOverridden) {
+    const expectedWithTail = contractualPeriods + Math.max(0, loan.recoveryDelay - 1);
+    if (Math.abs(loan.periods - expectedWithTail) > 1) {
+      warnings.push(
+        `Input periods (${loan.periods}) differs from derived value. ` +
+        `Maturity-based contractual periods: ${contractualPeriods}, ` +
+        `total with recovery tail: ${totalPeriods}. Using derived values.`
+      );
+    }
+  }
+
+  // Generate schedule dates for the full schedule (including recovery tail)
+  const scheduleDates = generateScheduleDates(calculationDate, totalPeriods);
 
   // Get SMM rate (SMM preferred over CPR) - use normalized values
   const smm = normalizedSmm > 0
@@ -671,13 +724,20 @@ export function calculateDCF(
   // Store pending recoveries for delay
   const pendingRecoveries: { period: number; amount: number }[] = [];
 
+  // Track balloon for debug info
+  let balloonApplied = false;
+  let balloonAmount = 0;
+  let balloonPeriod = 0;
+
   // Calculate each period
   let previousDate = calculationDate;
 
-  for (let i = 0; i < loan.periods; i++) {
+  for (let i = 0; i < totalPeriods; i++) {
     const period = i + 1;
     const periodDate = scheduleDates[i];
-    const remainingPeriods = loan.periods - i;
+    const isPreMaturity = period <= contractualPeriods;
+    const isMaturityPeriod = period === contractualPeriods;
+    const isPostMaturity = period > contractualPeriods;
 
     // Get days in period
     const daysInPeriod = getDaysInPeriod(
@@ -689,103 +749,141 @@ export function calculateDCF(
     // Get cumulative days for discounting
     const cumulativeDays = getCumulativeDays(calculationDate, periodDate);
 
-    // Get forecast rates for this period
-    // These rates could be monthly, quarterly, or annual depending on the source
-    const rawPdRate = getForecastRate(pdCurve, periodDate);
-    const rawLgdRate = getForecastRate(lgdCurve, periodDate);
+    // ========================================================================
+    // PRE-MATURITY PERIODS: Full calculation (interest, principal, prepay, default)
+    // ========================================================================
+    let interestPayment = 0;
+    let scheduledPrincipal = 0;
+    let prepayment = 0;
+    let defaultAmount = 0;
+    let lossAmount = 0;
+    let recoveryAtDefault = 0;
+    let pdRate = 0;
+    let lgdRate = 0;
+    let monthlyInterestRate = 0;
 
-    // Normalize PD/LGD rates in case they were provided as percentages
-    // This is critical - rates might be extracted as 1.5 for "1.5%" instead of 0.015
-    const pdNorm = normalizeRateToDecimal(rawPdRate, 'PD Rate');
-    const lgdNorm = normalizeRateToDecimal(rawLgdRate, 'LGD Rate');
+    if (isPreMaturity) {
+      // Get forecast rates for this period
+      const rawPdRate = getForecastRate(pdCurve, periodDate);
+      const rawLgdRate = getForecastRate(lgdCurve, periodDate);
 
-    // Only add warnings once (first period) to avoid spam
-    if (period === 1) {
-      if (pdNorm.warning) warnings.push(pdNorm.warning);
-      if (lgdNorm.warning) warnings.push(lgdNorm.warning);
-    }
+      // Normalize PD/LGD rates
+      const pdNorm = normalizeRateToDecimal(rawPdRate, 'PD Rate');
+      const lgdNorm = normalizeRateToDecimal(rawLgdRate, 'LGD Rate');
 
-    const normalizedPdRate = pdNorm.value;
-    const lgdRate = lgdNorm.value;
+      // Only add warnings once (first period) to avoid spam
+      if (period === 1) {
+        if (pdNorm.warning) warnings.push(pdNorm.warning);
+        if (lgdNorm.warning) warnings.push(lgdNorm.warning);
+      }
 
-    // Convert PD to monthly based on the source period and conversion method
-    // - 'monthly': No conversion needed (rate is already monthly)
-    // - 'quarterly'/'annual' with 'simple' method: Divide by 12 (Excel/Abrigo approach)
-    // - 'quarterly'/'annual' with 'compound' method: Use 1-(1-rate)^(1/n) formula
-    //
-    // NOTE: LGD is NOT converted - it's not a periodic rate, it's the loss
-    // percentage applied at the time of default
-    const pdRate = convertRateToMonthly(normalizedPdRate, pdRatePeriod, pdConversionMethod);
+      const normalizedPdRate = pdNorm.value;
+      lgdRate = lgdNorm.value;
 
-    // Calculate monthly interest rate (using normalized interest rate)
-    const monthlyInterestRate = calculateMonthlyInterestRate(
-      interestRate,
-      daysInPeriod,
-      loan.amortizationDays
-    );
+      // Convert PD to monthly
+      pdRate = convertRateToMonthly(normalizedPdRate, pdRatePeriod, pdConversionMethod);
 
-    // Calculate interest payment (with rounding per Excel)
-    const interestPayment = roundTo2Decimals(calculateInterestPayment(balance, monthlyInterestRate));
+      // Calculate monthly interest rate
+      monthlyInterestRate = calculateMonthlyInterestRate(
+        interestRate,
+        daysInPeriod,
+        loan.amortizationDays
+      );
 
-    // Calculate payment amount - either fixed or reamortized
-    let paymentAmountForPeriod = loan.paymentAmount;
+      // Calculate interest payment
+      interestPayment = roundTo2Decimals(calculateInterestPayment(balance, monthlyInterestRate));
 
-    if (loan.reamortize && loan.amortizationTerm) {
-      // Reamortize: recalculate payment based on current balance and remaining amort term
-      // Excel's "Am Thru" decreases by 2 each period (for monthly payments)
-      // Starting from original amortizationTerm, subtract periods elapsed
-      const remainingAmortPeriods = loan.amortizationTerm - (period - 1);
+      // Calculate payment amount - either fixed or reamortized
+      let paymentAmountForPeriod = loan.paymentAmount;
 
-      if (remainingAmortPeriods > 0) {
-        // Use a simple monthly rate for reamortization (annual rate / 12)
-        const simpleMonthlyRate = interestRate / 12;
-        paymentAmountForPeriod = calculateReamortizedPayment(
-          balance,
-          simpleMonthlyRate,
-          remainingAmortPeriods
-        );
+      if (loan.reamortize && loan.amortizationTerm) {
+        // Reamortize: recalculate payment based on current balance and remaining amort term
+        // Excel's "Am Thru" decreases by 2 each period (for semi-monthly payment frequency)
+        // For monthly payments, it decreases by 1 each period
+        // Using decrement of 2 to match Excel template behavior
+        const decrementPerPeriod = 2; // Excel uses 2 for this template
+        const remainingAmortPeriods = loan.amortizationTerm - decrementPerPeriod * (period - 1);
+
+        if (remainingAmortPeriods > 0) {
+          // Use a simple monthly rate for reamortization (annual rate / 12)
+          const simpleMonthlyRate = interestRate / 12;
+          paymentAmountForPeriod = calculateReamortizedPayment(
+            balance,
+            simpleMonthlyRate,
+            remainingAmortPeriods
+          );
+        }
+      }
+
+      // Calculate remaining periods for principal calculation
+      const remainingPeriods = contractualPeriods - i;
+
+      // Calculate scheduled principal
+      scheduledPrincipal = calculateScheduledPrincipal(
+        balance,
+        interestPayment,
+        paymentAmountForPeriod,
+        loan.paymentType,
+        remainingPeriods,
+        curtailmentRate
+      );
+
+      // Calculate prepayment
+      prepayment = calculatePrepayment(
+        balance,
+        scheduledPrincipal,
+        smm,
+        curtailmentRate,
+        loan.paymentType
+      );
+
+      // Calculate default
+      defaultAmount = calculateDefault(
+        balance,
+        scheduledPrincipal,
+        prepayment,
+        pdRate
+      );
+
+      // Calculate loss
+      lossAmount = calculateLoss(defaultAmount, lgdRate);
+
+      // Calculate recovery (will be delayed)
+      recoveryAtDefault = calculateRecovery(defaultAmount, lossAmount);
+
+      // Store recovery for delayed release
+      if (recoveryAtDefault > 0) {
+        pendingRecoveries.push({
+          period: period + loan.recoveryDelay,
+          amount: recoveryAtDefault,
+        });
       }
     }
+    // ========================================================================
+    // POST-MATURITY PERIODS: Zero balance activity, only delayed recoveries
+    // ========================================================================
+    // isPostMaturity means we're in the recovery tail
+    // All balance-related values are already 0 from initialization
 
-    // Calculate scheduled principal (pass curtailmentRate for Interest Only loans)
-    const scheduledPrincipal = calculateScheduledPrincipal(
-      balance,
-      interestPayment,
-      paymentAmountForPeriod,
-      loan.paymentType,
-      remainingPeriods,
-      curtailmentRate
-    );
+    // ========================================================================
+    // MATURITY PERIOD: Handle balloon payment
+    // ========================================================================
+    if (isMaturityPeriod && balance > 0.01) {
+      // Calculate ending balance before balloon
+      const endingBeforeBalloon = Math.max(
+        0,
+        balance - scheduledPrincipal - prepayment - defaultAmount
+      );
 
-    // Calculate prepayment (rate depends on payment type per Excel template)
-    const prepayment = calculatePrepayment(
-      balance,
-      scheduledPrincipal,
-      smm,
-      curtailmentRate,
-      loan.paymentType
-    );
+      // Balloon is the remaining balance at maturity
+      balloonAmount = endingBeforeBalloon;
+      balloonApplied = true;
+      balloonPeriod = period;
 
-    // Calculate default
-    const defaultAmount = calculateDefault(
-      balance,
-      scheduledPrincipal,
-      prepayment,
-      pdRate
-    );
+      // Add balloon to scheduled principal for this period
+      scheduledPrincipal += balloonAmount;
 
-    // Calculate loss
-    const lossAmount = calculateLoss(defaultAmount, lgdRate);
-
-    // Calculate recovery (will be delayed)
-    const recoveryAtDefault = calculateRecovery(defaultAmount, lossAmount);
-
-    // Store recovery for delayed release
-    if (recoveryAtDefault > 0) {
-      pendingRecoveries.push({
-        period: period + loan.recoveryDelay,
-        amount: recoveryAtDefault,
-      });
+      warnings.push(`Balloon payment of $${balloonAmount.toFixed(2)} applied at maturity period ${period}`);
     }
 
     // Get actual recovery for this period (from delayed recoveries)
@@ -799,16 +897,13 @@ export function calculateDCF(
     cumulativeRecovery += recoveryAmount;
 
     // Calculate total cash flow for the period
-    // Per Excel template: Cash Flow = Principal + Interest + Prepayments + Recovery
-    // Loss is NOT subtracted - it's implicit in the reduced principal from defaults
-    // (defaulted principal is removed from balance, recovery comes back later)
     const totalCashFlow =
       interestPayment +
       scheduledPrincipal +
       prepayment +
       recoveryAmount;
 
-    // Calculate discount factor (using normalized effective yield)
+    // Calculate discount factor
     const discountFactor = calculateDiscountFactor(
       effectiveYield,
       period,
@@ -820,17 +915,27 @@ export function calculateDCF(
     const presentValue = totalCashFlow * discountFactor;
 
     // Calculate ending balance
-    const endingBalance = Math.max(
-      0,
-      balance - scheduledPrincipal - prepayment - defaultAmount
-    );
+    let endingBalance: number;
+    if (isMaturityPeriod) {
+      // At maturity, balance goes to zero (balloon paid off)
+      endingBalance = 0;
+    } else if (isPostMaturity) {
+      // Post-maturity, balance is already zero
+      endingBalance = 0;
+    } else {
+      // Pre-maturity, calculate normally
+      endingBalance = Math.max(
+        0,
+        balance - scheduledPrincipal - prepayment - defaultAmount
+      );
+    }
 
     // Store period cash flow
     cashFlows.push({
       period,
       date: periodDate,
       daysInPeriod,
-      beginningBalance: balance,
+      beginningBalance: isPostMaturity ? 0 : balance,
       endingBalance,
       interestRateApplied: monthlyInterestRate,
       pdRate,
@@ -854,49 +959,15 @@ export function calculateDCF(
     balance = endingBalance;
     previousDate = periodDate;
 
-    // Early exit if balance is zero
-    if (balance <= 0.01) {
-      break;
-    }
-  }
-
-  // Handle balloon payment at maturity (remaining balance after all scheduled payments)
-  // This is critical for loans that don't fully amortize
-  if (balance > 0.01 && cashFlows.length > 0) {
-    const lastCashFlow = cashFlows[cashFlows.length - 1];
-    // Add balloon to the last period's cash flow
-    const balloonPV = balance * lastCashFlow.discountFactor;
-    lastCashFlow.totalCashFlow += balance;
-    lastCashFlow.presentValue += balloonPV;
-    lastCashFlow.scheduledPrincipal += balance;
-    lastCashFlow.endingBalance = 0;
-    warnings.push(`Balloon payment of $${balance.toFixed(2)} added at maturity`);
-  }
-
-  // Capture any pending recoveries that extend beyond the loan term
-  // These should still be discounted and included in NPV
-  const lastPeriod = cashFlows.length > 0 ? cashFlows[cashFlows.length - 1].period : loan.periods;
-  const remainingRecoveries = pendingRecoveries.filter(r => r.period > lastPeriod);
-
-  if (remainingRecoveries.length > 0) {
-    let totalRemainingRecovery = 0;
-    for (const recovery of remainingRecoveries) {
-      // Discount the recovery back to present value
-      const recoveryDiscountFactor = calculateDiscountFactor(
-        effectiveYield,
-        recovery.period,
-        recovery.period * 30, // Approximate days for discounting
-        loan.amortizationDays
-      );
-      totalRemainingRecovery += recovery.amount * recoveryDiscountFactor;
-    }
-
-    if (totalRemainingRecovery > 0 && cashFlows.length > 0) {
-      // Add to last period's present value
-      const lastCF = cashFlows[cashFlows.length - 1];
-      lastCF.presentValue += totalRemainingRecovery;
-      lastCF.recoveryAmount += remainingRecoveries.reduce((sum, r) => sum + r.amount, 0);
-      warnings.push(`Deferred recoveries of $${remainingRecoveries.reduce((sum, r) => sum + r.amount, 0).toFixed(2)} captured after loan term`);
+    // ========================================================================
+    // EARLY EXIT: Only after maturity AND no pending recoveries
+    // ========================================================================
+    if (period >= contractualPeriods) {
+      const hasFutureRecoveries = pendingRecoveries.some(r => r.period > period);
+      if (!hasFutureRecoveries && balance <= 0.01) {
+        // No more cash flows expected, safe to exit
+        break;
+      }
     }
   }
 
@@ -912,7 +983,6 @@ export function calculateDCF(
   const netPresentValue = cashFlows.reduce((sum, cf) => sum + cf.presentValue, 0);
 
   // Calculate Reserve
-  // Reserve = Book Balance + Unamortized Amount - NPV
   const calculatedReserve = loan.bookBalance + loan.unamortizedAmount - netPresentValue;
 
   // Calculate variance
@@ -927,8 +997,33 @@ export function calculateDCF(
   // Determine if result is valid
   const valid = errors.length === 0;
 
+  // Build debug info for diagnostics
+  const pendingRecoveriesAtMaturity = pendingRecoveries.filter(r => r.period > contractualPeriods).length;
+  const pendingRecoveriesAtFinal = pendingRecoveries.filter(r => r.period > totalPeriods).length;
+  const totalRecoveriesInTail = cashFlows
+    .filter(cf => cf.period > contractualPeriods)
+    .reduce((sum, cf) => sum + cf.recoveryAmount, 0);
+
+  const debugInfo: ScheduleDebugInfo = {
+    inputPeriods: loan.periods,
+    derivedMaturityPeriod: contractualPeriods,
+    totalPeriods: totalPeriods,
+    periodsOverridden,
+    calculationDate,
+    maturityDate,
+    maturityPeriodDate: scheduleDates[contractualPeriods - 1] || maturityDate,
+    finalPeriodDate: scheduleDates[scheduleDates.length - 1] || maturityDate,
+    balloonApplied,
+    balloonAmount,
+    balloonPeriod,
+    recoveryDelay: loan.recoveryDelay,
+    pendingRecoveriesAtMaturity,
+    pendingRecoveriesAtFinal,
+    totalRecoveriesInTail,
+  };
+
   return {
-    id: `calc-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+    id: `calc-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
     loanId: loan.id,
     segmentId: loan.segmentId,
     calculatedAt: new Date(),
@@ -950,6 +1045,7 @@ export function calculateDCF(
     valid,
     warnings,
     errors,
+    debugInfo,
   };
 }
 
@@ -975,8 +1071,25 @@ export function validateLoanInput(loan: Partial<LoanInput>): {
     errors.push('Book balance must be positive');
   }
   if (!loan.maturityDate) errors.push('Maturity date is required');
+
+  // Periods is now optional - derived from maturityDate internally
+  // But warn if not provided or if it seems inconsistent
   if (!loan.periods || loan.periods <= 0) {
-    errors.push('Number of periods must be positive');
+    warnings.push(
+      'Number of periods not provided or invalid - will be derived from maturityDate'
+    );
+  } else if (loan.maturityDate && loan.calculationDate) {
+    // Check if provided periods roughly matches maturity date
+    const derivedPeriods = getMaturityPeriod(
+      new Date(loan.calculationDate),
+      new Date(loan.maturityDate)
+    );
+    if (Math.abs(loan.periods - derivedPeriods) > 3) {
+      warnings.push(
+        `Provided periods (${loan.periods}) differs significantly from maturity-derived periods (${derivedPeriods}). ` +
+        `Engine will use maturity-derived value.`
+      );
+    }
   }
 
   // Rate validations
