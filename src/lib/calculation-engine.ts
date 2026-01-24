@@ -218,19 +218,18 @@ export function calculateMonthlyInterestRate(
   daysInMonth: number,
   amortizationDays: AmortizationDays
 ): number {
-  const amortMultiplier = getAmortizationMultiplier(amortizationDays);
-
+  // Use direct formulas to minimize floating-point intermediate calculations
   switch (amortizationDays) {
     case 'Actual 360':
-      // Excel: Rate × (365/360) × (Days/365) = Rate × Days / 360 with multiplier
-      return annualRate * amortMultiplier * (daysInMonth / 365);
+      // Direct formula: Rate × Days / 360
+      return annualRate * daysInMonth / 360;
     case 'Actual 365':
-      // Excel: Rate × 1 × (Days/365)
-      return annualRate * amortMultiplier * (daysInMonth / 365);
+      // Direct formula: Rate × Days / 365
+      return annualRate * daysInMonth / 365;
     case '30/360':
     default:
-      // Excel: Rate × 1 × (1/12)
-      return annualRate * amortMultiplier * (1 / 12);
+      // Direct formula: Rate / 12
+      return annualRate / 12;
   }
 }
 
@@ -271,16 +270,13 @@ export function calculateScheduledPrincipal(
       return roundTo2Decimals(Math.min(paymentAmount, beginningBalance));
 
     case 'Interest Only':
-      // Per Excel: Interest Only loans use curtailment rate for principal reduction
+    case 'Line of Credit':
+      // Per Excel: Interest Only and Line of Credit loans use curtailment rate for principal reduction
       // Formula: Beginning Balance × ROUND(1 - (1 - CurtailmentRate)^(1/12), 6)
       if (curtailmentRate > 0) {
         const monthlyCurtailment = roundTo6Decimals(1 - Math.pow(1 - curtailmentRate, 1 / 12));
         return roundTo2Decimals(beginningBalance * monthlyCurtailment);
       }
-      return 0;
-
-    case 'Line of Credit':
-      // Line of credit - no scheduled principal
       return 0;
 
     default:
@@ -545,9 +541,10 @@ export function calculateDefault(
   prepayment: number,
   pdRate: number
 ): number {
-  // Excel formula: MIN(PD × Beginning Balance, Beginning Balance - Principal - Prepayments)
-  const calculatedDefault = beginningBalance * pdRate;
-  const maxDefault = beginningBalance - scheduledPrincipal - prepayment;
+  // Excel formula: MIN(ROUND(PD × Beginning Balance, 2), Beginning Balance - Principal - Prepayments)
+  // Round the PD calculation first, then apply MIN cap
+  const calculatedDefault = roundTo2Decimals(beginningBalance * pdRate);
+  const maxDefault = roundTo2Decimals(beginningBalance - scheduledPrincipal - prepayment);
   return roundTo2Decimals(Math.max(0, Math.min(calculatedDefault, maxDefault)));
 }
 
@@ -607,6 +604,7 @@ export function calculateDiscountFactor(
   }
 
   // Discount factor = 1 / (1 + rate)^exponent
+  // Excel uses full IEEE 754 precision (no explicit rounding)
   return 1 / Math.pow(1 + effectiveYield, exponent);
 }
 
@@ -692,18 +690,21 @@ export function convertRateToMonthly(
     return rate;
   }
 
-  // SIMPLE METHOD: Divide by 12 (Excel/Abrigo approach)
-  // Treats all non-monthly rates as annualized rates
+  // SIMPLE METHOD: Divide by 12
+  // Use this only when rates are true periodic rates that should be divided
   if (conversionMethod === 'simple') {
     return roundTo6Decimals(rate / 12);
   }
 
-  // COMPOUND METHOD: Use mathematically correct formula
+  // COMPOUND METHOD: Excel/Abrigo approach
+  // The quarterly rates in forecasts are actually ANNUALIZED rates bucketed by quarter
+  // Excel formula: =ROUND(1-(1-rate)^(1/12),6)
+  // This converts annualized rate to monthly using compound formula
   switch (ratePeriod) {
     case 'quarterly':
-      // Convert quarterly to monthly: 1 - (1 - quarterly_rate)^(1/3)
-      // Example: 0.5449% quarterly → 0.1823% monthly
-      return roundTo6Decimals(1 - Math.pow(1 - rate, 1 / 3));
+      // Quarterly rates are annualized - convert to monthly: 1 - (1 - rate)^(1/12)
+      // Example: 0.6279% annualized → 0.0525% monthly
+      return roundTo6Decimals(1 - Math.pow(1 - rate, 1 / 12));
 
     case 'annual':
       // Convert annual to monthly: 1 - (1 - annual_rate)^(1/12)
@@ -711,8 +712,8 @@ export function convertRateToMonthly(
       return roundTo6Decimals(1 - Math.pow(1 - rate, 1 / 12));
 
     default:
-      // Default to quarterly compound conversion
-      return roundTo6Decimals(1 - Math.pow(1 - rate, 1 / 3));
+      // Default to compound conversion assuming annualized rate
+      return roundTo6Decimals(1 - Math.pow(1 - rate, 1 / 12));
   }
 }
 
@@ -920,6 +921,9 @@ export function calculateDCF(
   let reamortPaymentUsed = 0;
   let remainingAmortPeriodsUsed = 0;
 
+  // Running NPV accumulator with full precision (to avoid rounding errors)
+  let npvAccumulator = 0;
+
   // Calculate each period
   let previousDate = calculationDate;
 
@@ -1107,7 +1111,7 @@ export function calculateDCF(
     cumulativeRecovery += recoveryAmount;
 
     // Calculate total cash flow for the period
-    // Round to 2 decimals to match Excel
+    // Round to 2 decimals to match Excel's column sum behavior
     const totalCashFlow = roundTo2Decimals(
       interestPayment +
       scheduledPrincipal +
@@ -1124,8 +1128,11 @@ export function calculateDCF(
     );
 
     // Calculate present value
-    // Round to 2 decimals to match Excel
-    const presentValue = roundTo2Decimals(totalCashFlow * discountFactor);
+    const presentValueRaw = totalCashFlow * discountFactor;
+    const presentValue = roundTo2Decimals(presentValueRaw);
+
+    // Accumulate NPV using rounded PV values (matches Excel SUM of PV column)
+    npvAccumulator += presentValue;
 
     // Calculate ending balance
     let endingBalance: number;
@@ -1193,8 +1200,8 @@ export function calculateDCF(
   const totalLoss = roundTo2Decimals(cashFlows.reduce((sum, cf) => sum + cf.lossAmount, 0));
   const totalRecovery = roundTo2Decimals(cashFlows.reduce((sum, cf) => sum + cf.recoveryAmount, 0));
 
-  // Calculate NPV (round to 2 decimals to match Excel)
-  const netPresentValue = roundTo2Decimals(cashFlows.reduce((sum, cf) => sum + cf.presentValue, 0));
+  // Calculate NPV using full-precision accumulator (round only final result)
+  const netPresentValue = roundTo2Decimals(npvAccumulator);
 
   // Calculate Reserve (round to 2 decimals to match Excel)
   const calculatedReserve = roundTo2Decimals(loan.bookBalance + loan.unamortizedAmount - netPresentValue);
