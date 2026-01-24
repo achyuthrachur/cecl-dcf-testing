@@ -59,17 +59,28 @@ function differenceInDaysUTC(dateLeft: Date, dateRight: Date): number {
 /**
  * Generate end-of-month dates for the loan schedule
  * Uses UTC-based date handling to avoid timezone issues
+ *
+ * IMPORTANT: This function directly calculates end-of-month dates without
+ * relying on addMonthsUTC, which has issues when the source date's day
+ * doesn't exist in the target month (e.g., June 30 + 8 months = "Feb 30"
+ * which rolls over incorrectly to March 2).
  */
 export function generateScheduleDates(
   calculationDate: Date,
   periods: number
 ): Date[] {
   const dates: Date[] = [];
+  const baseYear = calculationDate.getUTCFullYear();
+  const baseMonth = calculationDate.getUTCMonth();
+
   for (let i = 1; i <= periods; i++) {
-    // Use UTC functions to avoid timezone issues
-    const futureDate = addMonthsUTC(calculationDate, i);
-    const date = endOfMonthUTC(futureDate);
-    dates.push(date);
+    // Calculate target month (0-indexed)
+    const targetMonth = baseMonth + i;
+
+    // Get the last day of the target month by going to day 0 of the next month
+    // This correctly handles month overflow (e.g., month 13 becomes Jan of next year)
+    const endOfMonth = new Date(Date.UTC(baseYear, targetMonth + 1, 0));
+    dates.push(endOfMonth);
   }
   return dates;
 }
@@ -457,6 +468,8 @@ export function calculateReamortizedPayment(
 /**
  * Get the SMM (Single Monthly Mortality) rate
  * SMM takes precedence over CPR if both are provided
+ *
+ * Per Excel: SMM = ROUND(1 - (1 - CPR)^(1/12), 6)
  */
 export function getSMM(loan: LoanInput): number {
   // SMM wins if explicitly provided
@@ -464,9 +477,10 @@ export function getSMM(loan: LoanInput): number {
     return loan.smm;
   }
 
-  // Convert CPR to SMM: SMM = 1 - (1 - CPR)^(1/12)
+  // Convert CPR to SMM: SMM = ROUND(1 - (1 - CPR)^(1/12), 6)
+  // Per Excel formula: =ROUND(1-(1-rate)^(1/12),6)
   if (loan.cpr && loan.cpr > 0) {
-    return 1 - Math.pow(1 - loan.cpr, 1 / 12);
+    return roundTo6Decimals(1 - Math.pow(1 - loan.cpr, 1 / 12));
   }
 
   return 0;
@@ -863,10 +877,11 @@ export function calculateDCF(
   const scheduleDates = generateScheduleDates(calculationDate, totalPeriods);
 
   // Get SMM rate (SMM preferred over CPR) - use normalized values
+  // Per Excel formula: SMM = ROUND(1 - (1 - CPR)^(1/12), 6)
   const smm = normalizedSmm > 0
     ? normalizedSmm
     : normalizedCpr > 0
-      ? 1 - Math.pow(1 - normalizedCpr, 1 / 12)
+      ? roundTo6Decimals(1 - Math.pow(1 - normalizedCpr, 1 / 12))
       : 0;
 
   // Initialize tracking variables
@@ -974,7 +989,9 @@ export function calculateDCF(
 
       // Reamortization: recalculate payment based on current balance and remaining amort term
       // Only apply if reamortize flag is true AND we have a valid amortization term
-      if (loan.reamortize && effectiveAmortTerm && effectiveAmortTerm > 0) {
+      // IMPORTANT: Per Excel, Period 1 always uses the initial payment amount ($C$6),
+      // reamortization only applies from Period 2 onwards
+      if (loan.reamortize && effectiveAmortTerm && effectiveAmortTerm > 0 && period > 1) {
         // For monthly schedule periods, decrement by 1 each period
         // (The schedule is monthly-period-based with EOM dates)
         const decrementPerPeriod = 1;
@@ -1058,7 +1075,8 @@ export function calculateDCF(
         lossAmount = calculateLoss(defaultAmount, lgdRate);
 
         // Calculate recovery (will be delayed)
-        recoveryAtDefault = calculateRecovery(defaultAmount, lossAmount);
+        // Round to 2 decimals to match Excel
+        recoveryAtDefault = roundTo2Decimals(calculateRecovery(defaultAmount, lossAmount));
 
         // Store recovery for delayed release
         if (recoveryAtDefault > 0) {
@@ -1076,9 +1094,12 @@ export function calculateDCF(
     // All balance-related values are already 0 from initialization
 
     // Get actual recovery for this period (from delayed recoveries)
-    const recoveryAmount = pendingRecoveries
-      .filter((r) => r.period === period)
-      .reduce((sum, r) => sum + r.amount, 0);
+    // Round to 2 decimals to match Excel
+    const recoveryAmount = roundTo2Decimals(
+      pendingRecoveries
+        .filter((r) => r.period === period)
+        .reduce((sum, r) => sum + r.amount, 0)
+    );
 
     // Update cumulative totals
     cumulativeDefault += defaultAmount;
@@ -1086,11 +1107,13 @@ export function calculateDCF(
     cumulativeRecovery += recoveryAmount;
 
     // Calculate total cash flow for the period
-    const totalCashFlow =
+    // Round to 2 decimals to match Excel
+    const totalCashFlow = roundTo2Decimals(
       interestPayment +
       scheduledPrincipal +
       prepayment +
-      recoveryAmount;
+      recoveryAmount
+    );
 
     // Calculate discount factor
     const discountFactor = calculateDiscountFactor(
@@ -1101,7 +1124,8 @@ export function calculateDCF(
     );
 
     // Calculate present value
-    const presentValue = totalCashFlow * discountFactor;
+    // Round to 2 decimals to match Excel
+    const presentValue = roundTo2Decimals(totalCashFlow * discountFactor);
 
     // Calculate ending balance
     let endingBalance: number;
@@ -1113,10 +1137,11 @@ export function calculateDCF(
       endingBalance = 0;
     } else {
       // Pre-maturity, calculate normally
-      endingBalance = Math.max(
+      // Round to 2 decimals to match Excel
+      endingBalance = roundTo2Decimals(Math.max(
         0,
         balance - scheduledPrincipal - prepayment - defaultAmount
-      );
+      ));
     }
 
     // Store period cash flow
@@ -1160,19 +1185,19 @@ export function calculateDCF(
     }
   }
 
-  // Calculate summary metrics
-  const totalInterest = cashFlows.reduce((sum, cf) => sum + cf.interestPayment, 0);
-  const totalPrincipal = cashFlows.reduce((sum, cf) => sum + cf.scheduledPrincipal, 0);
-  const totalPrepayment = cashFlows.reduce((sum, cf) => sum + cf.prepayment, 0);
-  const totalDefault = cashFlows.reduce((sum, cf) => sum + cf.defaultAmount, 0);
-  const totalLoss = cashFlows.reduce((sum, cf) => sum + cf.lossAmount, 0);
-  const totalRecovery = cashFlows.reduce((sum, cf) => sum + cf.recoveryAmount, 0);
+  // Calculate summary metrics (round to 2 decimals to match Excel)
+  const totalInterest = roundTo2Decimals(cashFlows.reduce((sum, cf) => sum + cf.interestPayment, 0));
+  const totalPrincipal = roundTo2Decimals(cashFlows.reduce((sum, cf) => sum + cf.scheduledPrincipal, 0));
+  const totalPrepayment = roundTo2Decimals(cashFlows.reduce((sum, cf) => sum + cf.prepayment, 0));
+  const totalDefault = roundTo2Decimals(cashFlows.reduce((sum, cf) => sum + cf.defaultAmount, 0));
+  const totalLoss = roundTo2Decimals(cashFlows.reduce((sum, cf) => sum + cf.lossAmount, 0));
+  const totalRecovery = roundTo2Decimals(cashFlows.reduce((sum, cf) => sum + cf.recoveryAmount, 0));
 
-  // Calculate NPV
-  const netPresentValue = cashFlows.reduce((sum, cf) => sum + cf.presentValue, 0);
+  // Calculate NPV (round to 2 decimals to match Excel)
+  const netPresentValue = roundTo2Decimals(cashFlows.reduce((sum, cf) => sum + cf.presentValue, 0));
 
-  // Calculate Reserve
-  const calculatedReserve = loan.bookBalance + loan.unamortizedAmount - netPresentValue;
+  // Calculate Reserve (round to 2 decimals to match Excel)
+  const calculatedReserve = roundTo2Decimals(loan.bookBalance + loan.unamortizedAmount - netPresentValue);
 
   // Calculate variance
   const varianceDollar = calculatedReserve - loan.actualReserve;
