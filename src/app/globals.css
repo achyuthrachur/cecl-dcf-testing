@@ -8,16 +8,37 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
+    --background: 250 250 250;
+    --foreground: 15 23 42;
+    --card: 255 255 255;
+    --card-foreground: 15 23 42;
+    --popover: 255 255 255;
+    --popover-foreground: 15 23 42;
+    --muted: 241 245 249;
+    --muted-foreground: 100 116 139;
+    --border: 226 232 240;
+    --input: 226 232 240;
+  }
+
+  .dark {
+    --background: 15 23 42;
+    --foreground: 248 250 252;
+    --card: 30 41 59;
+    --card-foreground: 248 250 252;
+    --popover: 30 41 59;
+    --popover-foreground: 248 250 252;
+    --muted: 51 65 85;
+    --muted-foreground: 148 163 184;
+    --border: 51 65 85;
+    --input: 51 65 85;
   }
 
   * {
-    @apply border-slate-200;
+    @apply border-slate-200 dark:border-slate-700;
   }
 
   body {
-    @apply bg-slate-50 text-slate-900 antialiased;
+    @apply bg-slate-50 text-slate-900 antialiased dark:bg-slate-900 dark:text-slate-100;
     font-feature-settings: "rlig" 1, "calt" 1;
   }
 
@@ -28,10 +49,10 @@
 
   /* Better focus styles */
   *:focus-visible {
-    @apply outline-none ring-2 ring-primary-500 ring-offset-2;
+    @apply outline-none ring-2 ring-primary-500 ring-offset-2 dark:ring-offset-slate-900;
   }
 
-  /* Custom scrollbar */
+  /* Custom scrollbar - Light */
   ::-webkit-scrollbar {
     width: 8px;
     height: 8px;
@@ -45,26 +66,39 @@
     @apply bg-slate-300 rounded-full hover:bg-slate-400;
   }
 
+  /* Custom scrollbar - Dark */
+  .dark ::-webkit-scrollbar-track {
+    @apply bg-slate-800;
+  }
+
+  .dark ::-webkit-scrollbar-thumb {
+    @apply bg-slate-600 hover:bg-slate-500;
+  }
+
   /* Selection */
   ::selection {
     @apply bg-primary-200 text-primary-900;
+  }
+
+  .dark ::selection {
+    @apply bg-primary-800 text-primary-100;
   }
 }
 
 @layer components {
   /* Glass effect */
   .glass {
-    @apply bg-white/70 backdrop-blur-lg border border-white/20;
+    @apply bg-white/70 backdrop-blur-lg border border-white/20 dark:bg-slate-800/70 dark:border-slate-700/50;
   }
 
   /* Gradient text */
   .text-gradient {
-    @apply bg-gradient-to-r from-primary-600 to-primary-800 bg-clip-text text-transparent;
+    @apply bg-gradient-to-r from-primary-500 to-primary-700 bg-clip-text text-transparent dark:from-primary-400 dark:to-primary-600;
   }
 
   /* Card hover effect */
   .card-hover {
-    @apply transition-all duration-300 hover:shadow-soft-lg hover:-translate-y-0.5;
+    @apply transition-all duration-300 hover:shadow-soft-lg hover:-translate-y-0.5 dark:hover:shadow-lg dark:hover:shadow-slate-900/20;
   }
 
   /* Pulse animation for loading states */
@@ -78,15 +112,16 @@
   }
 
   .data-table th {
-    @apply px-4 py-3 text-left font-semibold text-slate-600 bg-slate-50 border-b border-slate-200;
+    @apply px-4 py-3 text-left font-semibold text-slate-600 bg-slate-50 border-b border-slate-200
+           dark:text-slate-300 dark:bg-slate-800 dark:border-slate-700;
   }
 
   .data-table td {
-    @apply px-4 py-3 border-b border-slate-100;
+    @apply px-4 py-3 border-b border-slate-100 dark:border-slate-700;
   }
 
   .data-table tr:hover td {
-    @apply bg-slate-50;
+    @apply bg-slate-50 dark:bg-slate-800/50;
   }
 
   /* Status indicators */
@@ -112,15 +147,15 @@
 
   /* Financial number formatting */
   .number-positive {
-    @apply text-accent-600;
+    @apply text-accent-600 dark:text-accent-400;
   }
 
   .number-negative {
-    @apply text-danger-600;
+    @apply text-danger-600 dark:text-danger-400;
   }
 
   .number-neutral {
-    @apply text-slate-600;
+    @apply text-slate-600 dark:text-slate-400;
   }
 }
 
@@ -180,7 +215,7 @@
 
 /* Loading skeleton */
 .skeleton {
-  @apply bg-gradient-to-r from-slate-200 via-slate-100 to-slate-200;
+  @apply bg-gradient-to-r from-slate-200 via-slate-100 to-slate-200 dark:from-slate-700 dark:via-slate-600 dark:to-slate-700;
   background-size: 200% 100%;
   animation: shimmer 1.5s infinite;
 }

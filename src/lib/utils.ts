@@ -125,12 +125,81 @@ export function getVarianceColor(variance: number): string {
 }
 
 /**
- * Convert file to base64
+ * Compress image to reduce size before sending to API
+ * This can significantly reduce upload time and API latency
  */
-export function fileToBase64(file: File): Promise<string> {
+export function compressImage(
+  file: File,
+  maxWidth: number = 1920,
+  quality: number = 0.85
+): Promise<File> {
+  return new Promise((resolve, reject) => {
+    // If not an image, return as-is
+    if (!file.type.startsWith('image/')) {
+      resolve(file);
+      return;
+    }
+
+    const img = new Image();
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+
+    img.onload = () => {
+      // Calculate new dimensions
+      let width = img.width;
+      let height = img.height;
+
+      if (width > maxWidth) {
+        height = (height * maxWidth) / width;
+        width = maxWidth;
+      }
+
+      canvas.width = width;
+      canvas.height = height;
+
+      // Draw and compress
+      ctx?.drawImage(img, 0, 0, width, height);
+
+      canvas.toBlob(
+        (blob) => {
+          if (blob) {
+            const compressedFile = new File([blob], file.name, {
+              type: 'image/jpeg',
+              lastModified: Date.now(),
+            });
+            resolve(compressedFile);
+          } else {
+            // Fall back to original if compression fails
+            resolve(file);
+          }
+        },
+        'image/jpeg',
+        quality
+      );
+    };
+
+    img.onerror = () => {
+      // Fall back to original if loading fails
+      resolve(file);
+    };
+
+    // Create object URL for image
+    img.src = URL.createObjectURL(file);
+  });
+}
+
+/**
+ * Convert file to base64 with optional compression
+ */
+export async function fileToBase64(file: File, compress: boolean = true): Promise<string> {
+  // Compress image if enabled and file is large
+  const fileToProcess = compress && file.size > 500 * 1024
+    ? await compressImage(file)
+    : file;
+
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.readAsDataURL(file);
+    reader.readAsDataURL(fileToProcess);
     reader.onload = () => {
       const result = reader.result as string;
       // Remove the data:image/xxx;base64, prefix

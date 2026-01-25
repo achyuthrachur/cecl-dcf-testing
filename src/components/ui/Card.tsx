@@ -14,9 +14,9 @@ const Card = forwardRef<HTMLDivElement, CardProps>(
     ref
   ) => {
     const variants = {
-      default: 'bg-white border border-slate-200',
-      elevated: 'bg-white shadow-soft',
-      outlined: 'bg-transparent border-2 border-slate-200',
+      default: 'bg-white border border-slate-200 dark:bg-slate-800 dark:border-slate-700',
+      elevated: 'bg-white shadow-soft dark:bg-slate-800 dark:shadow-lg dark:shadow-slate-900/30',
+      outlined: 'bg-transparent border-2 border-slate-200 dark:border-slate-700',
     };
 
     const paddings = {
@@ -68,7 +68,7 @@ const CardTitle = forwardRef<HTMLHeadingElement, CardTitleProps>(
     <h3
       ref={ref}
       className={cn(
-        'text-lg font-semibold leading-none tracking-tight text-slate-900',
+        'text-lg font-semibold leading-none tracking-tight text-slate-900 dark:text-slate-100',
         className
       )}
       {...props}
@@ -86,7 +86,7 @@ const CardDescription = forwardRef<HTMLParagraphElement, CardDescriptionProps>(
   ({ className, children, ...props }, ref) => (
     <p
       ref={ref}
-      className={cn('text-sm text-slate-500', className)}
+      className={cn('text-sm text-slate-500 dark:text-slate-400', className)}
       {...props}
     >
       {children}

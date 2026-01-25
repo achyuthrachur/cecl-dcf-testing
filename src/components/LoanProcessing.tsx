@@ -252,14 +252,14 @@ export function LoanProcessing() {
 
           return (
             <div key={field.key} className="space-y-1">
-              <label className="text-xs font-medium text-slate-500">
+              <label className="text-xs font-medium text-slate-500 dark:text-slate-400">
                 {field.label}
               </label>
               {isEditing ? (
                 <div className="flex items-center gap-1">
                   {field.type === 'select' ? (
                     <select
-                      className="flex-1 text-sm px-2 py-1.5 border rounded-md"
+                      className="flex-1 text-sm px-2 py-1.5 border rounded-md bg-white dark:bg-slate-700 dark:border-slate-600 dark:text-slate-100"
                       value={String(value || '')}
                       onChange={(e) => handleUpdateField(field.key, e.target.value)}
                       autoFocus
@@ -274,7 +274,7 @@ export function LoanProcessing() {
                     <input
                       type={field.type === 'date' ? 'date' : field.type === 'number' || field.type === 'currency' || field.type === 'percent' ? 'number' : 'text'}
                       step={field.type === 'percent' ? '0.0001' : field.type === 'currency' ? '0.01' : undefined}
-                      className="flex-1 text-sm px-2 py-1.5 border rounded-md"
+                      className="flex-1 text-sm px-2 py-1.5 border rounded-md bg-white dark:bg-slate-700 dark:border-slate-600 dark:text-slate-100"
                       value={
                         field.type === 'date' && value
                           ? new Date(value as Date).toISOString().split('T')[0]
@@ -295,14 +295,14 @@ export function LoanProcessing() {
                   )}
                   <button
                     onClick={() => setEditingField(null)}
-                    className="p-1 text-accent-600 hover:bg-accent-50 rounded"
+                    className="p-1 text-accent-600 hover:bg-accent-50 dark:hover:bg-accent-900/30 rounded"
                   >
                     <Check className="w-4 h-4" />
                   </button>
                 </div>
               ) : (
                 <div
-                  className="flex items-center justify-between text-sm text-slate-900 px-2 py-1.5 bg-slate-50 rounded-md cursor-pointer hover:bg-slate-100 group"
+                  className="flex items-center justify-between text-sm text-slate-900 dark:text-slate-100 px-2 py-1.5 bg-slate-50 dark:bg-slate-700/50 rounded-md cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700 group"
                   onClick={() => setEditingField(field.key)}
                 >
                   <span className="font-mono">
@@ -333,12 +333,12 @@ export function LoanProcessing() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card variant="outlined" padding="sm">
           <CardContent className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-primary-100 flex items-center justify-center">
-              <Calculator className="w-5 h-5 text-primary-600" />
+            <div className="w-10 h-10 rounded-lg bg-primary-100 dark:bg-primary-900/50 flex items-center justify-center">
+              <Calculator className="w-5 h-5 text-primary-600 dark:text-primary-400" />
             </div>
             <div>
-              <p className="text-xs text-slate-500">NPV</p>
-              <p className="text-lg font-semibold text-slate-900">
+              <p className="text-xs text-slate-500 dark:text-slate-400">NPV</p>
+              <p className="text-lg font-semibold text-slate-900 dark:text-slate-100">
                 {formatCurrency(currentResult.netPresentValue)}
               </p>
             </div>
@@ -347,12 +347,12 @@ export function LoanProcessing() {
 
         <Card variant="outlined" padding="sm">
           <CardContent className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-accent-100 flex items-center justify-center">
-              <DollarSign className="w-5 h-5 text-accent-600" />
+            <div className="w-10 h-10 rounded-lg bg-accent-100 dark:bg-accent-900/50 flex items-center justify-center">
+              <DollarSign className="w-5 h-5 text-accent-600 dark:text-accent-400" />
             </div>
             <div>
-              <p className="text-xs text-slate-500">Calculated Reserve</p>
-              <p className="text-lg font-semibold text-slate-900">
+              <p className="text-xs text-slate-500 dark:text-slate-400">Calculated Reserve</p>
+              <p className="text-lg font-semibold text-slate-900 dark:text-slate-100">
                 {formatCurrency(currentResult.calculatedReserve)}
               </p>
             </div>
@@ -361,12 +361,12 @@ export function LoanProcessing() {
 
         <Card variant="outlined" padding="sm">
           <CardContent className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center">
-              <DollarSign className="w-5 h-5 text-slate-600" />
+            <div className="w-10 h-10 rounded-lg bg-slate-100 dark:bg-slate-700 flex items-center justify-center">
+              <DollarSign className="w-5 h-5 text-slate-600 dark:text-slate-400" />
             </div>
             <div>
-              <p className="text-xs text-slate-500">Actual Reserve</p>
-              <p className="text-lg font-semibold text-slate-900">
+              <p className="text-xs text-slate-500 dark:text-slate-400">Actual Reserve</p>
+              <p className="text-lg font-semibold text-slate-900 dark:text-slate-100">
                 {formatCurrency(currentResult.actualReserve)}
               </p>
             </div>
@@ -377,17 +377,17 @@ export function LoanProcessing() {
           <CardContent className="flex items-center gap-3">
             <div
               className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-                currentResult.varianceDollar >= 0 ? 'bg-accent-100' : 'bg-danger-100'
+                currentResult.varianceDollar >= 0 ? 'bg-accent-100 dark:bg-accent-900/50' : 'bg-danger-100 dark:bg-danger-900/50'
               }`}
             >
               {currentResult.varianceDollar >= 0 ? (
-                <TrendingUp className="w-5 h-5 text-accent-600" />
+                <TrendingUp className="w-5 h-5 text-accent-600 dark:text-accent-400" />
               ) : (
-                <TrendingDown className="w-5 h-5 text-danger-600" />
+                <TrendingDown className="w-5 h-5 text-danger-600 dark:text-danger-400" />
               )}
             </div>
             <div>
-              <p className="text-xs text-slate-500">Variance</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">Variance</p>
               <p className={`text-lg font-semibold ${varianceColor}`}>
                 {formatCurrency(currentResult.varianceDollar)}
                 <span className="text-sm ml-1">
@@ -406,7 +406,7 @@ export function LoanProcessing() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-primary-50 p-4 md:p-8">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-primary-50 dark:from-slate-900 dark:to-slate-800 p-4 md:p-8">
       <div className="max-w-7xl mx-auto space-y-6 animate-fade-in">
         {/* Header */}
         <div className="flex items-center justify-between flex-wrap gap-4">
@@ -420,10 +420,10 @@ export function LoanProcessing() {
               Back
             </Button>
             <div>
-              <h1 className="text-2xl font-bold text-slate-900">
+              <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">
                 {currentSegment.name}
               </h1>
-              <p className="text-slate-500 mt-0.5">
+              <p className="text-slate-500 dark:text-slate-400 mt-0.5">
                 {loanCount} loan{loanCount !== 1 ? 's' : ''} processed
               </p>
             </div>
@@ -446,15 +446,15 @@ export function LoanProcessing() {
 
         {/* Error Alert */}
         {error && (
-          <div className="bg-danger-50 border border-danger-200 rounded-lg p-4 flex items-start gap-3">
+          <div className="bg-danger-50 dark:bg-danger-950/50 border border-danger-200 dark:border-danger-800 rounded-lg p-4 flex items-start gap-3">
             <AlertTriangle className="w-5 h-5 text-danger-500 flex-shrink-0 mt-0.5" />
             <div className="flex-1">
-              <p className="font-medium text-danger-800">Error</p>
-              <p className="text-sm text-danger-700">{error}</p>
+              <p className="font-medium text-danger-800 dark:text-danger-200">Error</p>
+              <p className="text-sm text-danger-700 dark:text-danger-300">{error}</p>
             </div>
             <button
               onClick={() => setError(null)}
-              className="text-danger-400 hover:text-danger-600"
+              className="text-danger-400 hover:text-danger-600 dark:hover:text-danger-300"
             >
               <X className="w-5 h-5" />
             </button>
@@ -485,7 +485,7 @@ export function LoanProcessing() {
                 />
 
                 {isExtracting && (
-                  <div className="flex items-center justify-center py-8 text-primary-600">
+                  <div className="flex items-center justify-center py-8 text-primary-600 dark:text-primary-400">
                     <div className="w-6 h-6 border-2 border-current border-t-transparent rounded-full animate-spin mr-3" />
                     Extracting loan data...
                   </div>
@@ -499,8 +499,8 @@ export function LoanProcessing() {
                 <CardHeader>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-primary-100 rounded-lg flex items-center justify-center">
-                        <FileSpreadsheet className="w-5 h-5 text-primary-600" />
+                      <div className="w-10 h-10 bg-primary-100 dark:bg-primary-900/50 rounded-lg flex items-center justify-center">
+                        <FileSpreadsheet className="w-5 h-5 text-primary-600 dark:text-primary-400" />
                       </div>
                       <div>
                         <CardTitle>
@@ -523,7 +523,7 @@ export function LoanProcessing() {
                   </div>
                 </CardHeader>
                 <CardContent>{renderLoanInputForm()}</CardContent>
-                <CardFooter className="border-t border-slate-100 pt-4">
+                <CardFooter className="border-t border-slate-100 dark:border-slate-700 pt-4">
                   <Button
                     onClick={handleCalculate}
                     loading={isCalculating}
@@ -554,11 +554,11 @@ export function LoanProcessing() {
                   {renderResultSummary()}
 
                   {currentResult.warnings.length > 0 && (
-                    <div className="bg-warning-50 border border-warning-200 rounded-lg p-4">
-                      <p className="text-sm font-medium text-warning-800 mb-2">
+                    <div className="bg-warning-50 dark:bg-warning-950/50 border border-warning-200 dark:border-warning-800 rounded-lg p-4">
+                      <p className="text-sm font-medium text-warning-800 dark:text-warning-200 mb-2">
                         Warnings:
                       </p>
-                      <ul className="text-sm text-warning-700 space-y-1">
+                      <ul className="text-sm text-warning-700 dark:text-warning-300 space-y-1">
                         {currentResult.warnings.map((w, i) => (
                           <li key={i} className="flex items-start gap-2">
                             <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
@@ -569,7 +569,7 @@ export function LoanProcessing() {
                     </div>
                   )}
                 </CardContent>
-                <CardFooter className="border-t border-slate-100 pt-4 flex justify-between">
+                <CardFooter className="border-t border-slate-100 dark:border-slate-700 pt-4 flex justify-between">
                   <Button
                     variant="secondary"
                     onClick={() => {
@@ -632,8 +632,8 @@ export function LoanProcessing() {
               </CardHeader>
               <CardContent>
                 {loanResults.length === 0 ? (
-                  <div className="text-center py-8 text-slate-500">
-                    <FileSpreadsheet className="w-12 h-12 mx-auto mb-3 text-slate-300" />
+                  <div className="text-center py-8 text-slate-500 dark:text-slate-400">
+                    <FileSpreadsheet className="w-12 h-12 mx-auto mb-3 text-slate-300 dark:text-slate-600" />
                     <p>No loans stored yet</p>
                     <p className="text-sm">Upload and process loans above</p>
                   </div>
@@ -646,16 +646,16 @@ export function LoanProcessing() {
                       return (
                         <div
                           key={result.id}
-                          className="border border-slate-200 rounded-lg overflow-hidden"
+                          className="border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden"
                         >
                           <div
-                            className="flex items-center justify-between px-3 py-2 bg-slate-50 cursor-pointer hover:bg-slate-100"
+                            className="flex items-center justify-between px-3 py-2 bg-slate-50 dark:bg-slate-700/50 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700"
                             onClick={() =>
                               setExpandedLoan(isExpanded ? null : result.loanId)
                             }
                           >
                             <div className="flex items-center gap-2 min-w-0">
-                              <span className="font-medium text-sm text-slate-900 truncate">
+                              <span className="font-medium text-sm text-slate-900 dark:text-slate-100 truncate">
                                 {result.loanInput.loanNumber}
                               </span>
                               <span className={`text-xs font-medium ${varianceColor}`}>
@@ -669,7 +669,7 @@ export function LoanProcessing() {
                                   e.stopPropagation();
                                   handleDeleteLoan(result.loanId);
                                 }}
-                                className="p-1 text-slate-400 hover:text-danger-600 hover:bg-danger-50 rounded"
+                                className="p-1 text-slate-400 hover:text-danger-600 hover:bg-danger-50 dark:hover:bg-danger-950/50 rounded"
                               >
                                 <Trash2 className="w-4 h-4" />
                               </button>
@@ -681,27 +681,27 @@ export function LoanProcessing() {
                             </div>
                           </div>
                           {isExpanded && (
-                            <div className="px-3 py-2 text-xs space-y-1 bg-white">
+                            <div className="px-3 py-2 text-xs space-y-1 bg-white dark:bg-slate-800/50">
                               <div className="flex justify-between">
-                                <span className="text-slate-500">Book Balance:</span>
-                                <span className="font-mono">
+                                <span className="text-slate-500 dark:text-slate-400">Book Balance:</span>
+                                <span className="font-mono dark:text-slate-200">
                                   {formatCurrency(result.loanInput.bookBalance)}
                                 </span>
                               </div>
                               <div className="flex justify-between">
-                                <span className="text-slate-500">Calc Reserve:</span>
-                                <span className="font-mono">
+                                <span className="text-slate-500 dark:text-slate-400">Calc Reserve:</span>
+                                <span className="font-mono dark:text-slate-200">
                                   {formatCurrency(result.calculatedReserve)}
                                 </span>
                               </div>
                               <div className="flex justify-between">
-                                <span className="text-slate-500">Actual Reserve:</span>
-                                <span className="font-mono">
+                                <span className="text-slate-500 dark:text-slate-400">Actual Reserve:</span>
+                                <span className="font-mono dark:text-slate-200">
                                   {formatCurrency(result.actualReserve)}
                                 </span>
                               </div>
                               <div className="flex justify-between">
-                                <span className="text-slate-500">Variance %:</span>
+                                <span className="text-slate-500 dark:text-slate-400">Variance %:</span>
                                 <span className={`font-mono ${varianceColor}`}>
                                   {formatPercent(result.variancePercent / 100, 2)}
                                 </span>
@@ -721,12 +721,12 @@ export function LoanProcessing() {
               <Card variant="outlined" padding="sm">
                 <CardContent className="space-y-3">
                   <div className="flex justify-between text-sm">
-                    <span className="text-slate-500">Total Loans:</span>
-                    <span className="font-medium">{resultCount}</span>
+                    <span className="text-slate-500 dark:text-slate-400">Total Loans:</span>
+                    <span className="font-medium dark:text-slate-200">{resultCount}</span>
                   </div>
                   <div className="flex justify-between text-sm">
-                    <span className="text-slate-500">Total Book Balance:</span>
-                    <span className="font-medium font-mono">
+                    <span className="text-slate-500 dark:text-slate-400">Total Book Balance:</span>
+                    <span className="font-medium font-mono dark:text-slate-200">
                       {formatCurrency(
                         loanResults.reduce(
                           (sum, r) => sum + r.loanInput.bookBalance,
@@ -736,8 +736,8 @@ export function LoanProcessing() {
                     </span>
                   </div>
                   <div className="flex justify-between text-sm">
-                    <span className="text-slate-500">Total Calc Reserve:</span>
-                    <span className="font-medium font-mono">
+                    <span className="text-slate-500 dark:text-slate-400">Total Calc Reserve:</span>
+                    <span className="font-medium font-mono dark:text-slate-200">
                       {formatCurrency(
                         loanResults.reduce(
                           (sum, r) => sum + r.calculatedReserve,
@@ -747,7 +747,7 @@ export function LoanProcessing() {
                     </span>
                   </div>
                   <div className="flex justify-between text-sm">
-                    <span className="text-slate-500">Total Variance:</span>
+                    <span className="text-slate-500 dark:text-slate-400">Total Variance:</span>
                     <span className={`font-medium font-mono ${getVarianceColor(totalVariance)}`}>
                       {formatCurrency(totalVariance)}
                     </span>

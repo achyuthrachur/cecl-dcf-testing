@@ -48,8 +48,10 @@ export async function classifyImage(imageBase64: string): Promise<ImageType> {
   const client = getOpenAIClient();
 
   try {
+    // Use gpt-4o-mini for faster classification
+    // Classification only needs a simple yes/no answer, doesn't need full model power
     const response = await client.chat.completions.create({
-      model: 'gpt-4o',
+      model: 'gpt-4o-mini',
       messages: [
         {
           role: 'user',
@@ -59,7 +61,8 @@ export async function classifyImage(imageBase64: string): Promise<ImageType> {
               type: 'image_url',
               image_url: {
                 url: `data:image/png;base64,${imageBase64}`,
-                detail: 'high',
+                // Use low detail for faster classification
+                detail: 'low',
               },
             },
           ],

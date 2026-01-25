@@ -144,11 +144,11 @@ export function Dropzone({
             className={cn(
               'relative border-2 border-dashed rounded-xl p-6 transition-all duration-200 cursor-pointer',
               'flex flex-col items-center justify-center text-center',
-              isDragActive && !isDragReject && 'border-primary-500 bg-primary-50',
-              isDragReject && 'border-danger-500 bg-danger-50',
-              !isDragActive && !isDragReject && 'border-slate-300 hover:border-primary-400 hover:bg-slate-50',
+              isDragActive && !isDragReject && 'border-primary-500 bg-primary-50 dark:bg-primary-950/50',
+              isDragReject && 'border-danger-500 bg-danger-50 dark:bg-danger-950/50',
+              !isDragActive && !isDragReject && 'border-slate-300 hover:border-primary-400 hover:bg-slate-50 dark:border-slate-600 dark:hover:border-primary-500 dark:hover:bg-slate-800/50',
               disabled && 'opacity-50 cursor-not-allowed',
-              error && 'border-danger-300 bg-danger-50'
+              error && 'border-danger-300 bg-danger-50 dark:border-danger-500 dark:bg-danger-950/50'
             )}
           >
             <input {...getInputProps()} />
@@ -156,23 +156,23 @@ export function Dropzone({
             <div
               className={cn(
                 'w-14 h-14 rounded-full flex items-center justify-center mb-3',
-                isDragActive && !isDragReject && 'bg-primary-100',
-                isDragReject && 'bg-danger-100',
-                !isDragActive && !isDragReject && 'bg-slate-100'
+                isDragActive && !isDragReject && 'bg-primary-100 dark:bg-primary-900/50',
+                isDragReject && 'bg-danger-100 dark:bg-danger-900/50',
+                !isDragActive && !isDragReject && 'bg-slate-100 dark:bg-slate-700'
               )}
             >
               {isDragReject ? (
                 <AlertCircle className="w-7 h-7 text-danger-500" />
               ) : (
-                <Upload className={cn('w-7 h-7', isDragActive ? 'text-primary-500' : 'text-slate-400')} />
+                <Upload className={cn('w-7 h-7', isDragActive ? 'text-primary-500' : 'text-slate-400 dark:text-slate-500')} />
               )}
             </div>
 
-            <p className="text-sm font-medium text-slate-700 mb-1">
+            <p className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
               {isDragReject ? 'Invalid file type' : isDragActive ? 'Drop the file here' : label}
             </p>
 
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-slate-500 dark:text-slate-400">
               {isDragActive ? 'Release to upload' : hint}
             </p>
           </div>
@@ -180,33 +180,35 @@ export function Dropzone({
           <div className={cn(
             'flex items-center justify-center gap-2 px-4 py-3 rounded-lg transition-all',
             'bg-gradient-to-r from-primary-50 to-primary-100 border border-primary-200',
+            'dark:from-primary-950/50 dark:to-primary-900/50 dark:border-primary-800',
             disabled && 'opacity-50'
           )}>
-            <Clipboard className="w-5 h-5 text-primary-600" />
+            <Clipboard className="w-5 h-5 text-primary-600 dark:text-primary-400" />
             <div className="text-center">
-              <p className="text-sm font-medium text-primary-700">Paste Screenshot Anywhere</p>
-              <p className="text-xs text-primary-600">
-                Press <kbd className="px-1.5 py-0.5 bg-white rounded border border-primary-300 font-mono text-xs">Ctrl</kbd> + <kbd className="px-1.5 py-0.5 bg-white rounded border border-primary-300 font-mono text-xs">V</kbd> to paste
+              <p className="text-sm font-medium text-primary-700 dark:text-primary-300">Paste Screenshot Anywhere</p>
+              <p className="text-xs text-primary-600 dark:text-primary-400">
+                Press <kbd className="px-1.5 py-0.5 bg-white dark:bg-slate-700 rounded border border-primary-300 dark:border-primary-600 font-mono text-xs">Ctrl</kbd> + <kbd className="px-1.5 py-0.5 bg-white dark:bg-slate-700 rounded border border-primary-300 dark:border-primary-600 font-mono text-xs">V</kbd> to paste
               </p>
             </div>
           </div>
         </div>
       ) : (
-        <div className="relative border-2 border-slate-200 rounded-xl overflow-hidden bg-white">
+        <div className="relative border-2 border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden bg-white dark:bg-slate-800">
           {preview && previewUrl && (
-            <div className="aspect-video relative bg-slate-100">
+            <div className="aspect-video relative bg-slate-100 dark:bg-slate-900">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={previewUrl} alt="Preview" className="w-full h-full object-contain" />
             </div>
           )}
 
           <div className="p-4 flex items-center justify-between gap-4">
             <div className="flex items-center gap-3 min-w-0">
-              <div className="w-10 h-10 rounded-lg bg-primary-100 flex items-center justify-center flex-shrink-0">
-                <ImageIcon className="w-5 h-5 text-primary-600" />
+              <div className="w-10 h-10 rounded-lg bg-primary-100 dark:bg-primary-900/50 flex items-center justify-center flex-shrink-0">
+                <ImageIcon className="w-5 h-5 text-primary-600 dark:text-primary-400" />
               </div>
               <div className="min-w-0">
-                <p className="text-sm font-medium text-slate-900 truncate">{file.name}</p>
-                <p className="text-xs text-slate-500">{(file.size / 1024).toFixed(1)} KB</p>
+                <p className="text-sm font-medium text-slate-900 dark:text-slate-100 truncate">{file.name}</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400">{(file.size / 1024).toFixed(1)} KB</p>
               </div>
             </div>
 
@@ -216,7 +218,7 @@ export function Dropzone({
               disabled={disabled}
               className={cn(
                 'p-2 rounded-lg transition-colors',
-                'text-slate-400 hover:text-danger-600 hover:bg-danger-50',
+                'text-slate-400 hover:text-danger-600 hover:bg-danger-50 dark:hover:bg-danger-950/50',
                 disabled && 'opacity-50 cursor-not-allowed'
               )}
             >
@@ -227,7 +229,7 @@ export function Dropzone({
       )}
 
       {error && (
-        <p className="mt-2 text-sm text-danger-600 flex items-center gap-1.5">
+        <p className="mt-2 text-sm text-danger-600 dark:text-danger-400 flex items-center gap-1.5">
           <AlertCircle className="w-4 h-4" />
           {error}
         </p>

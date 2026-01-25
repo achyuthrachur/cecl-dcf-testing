@@ -42,46 +42,46 @@ export function StartupDialog({
 
       <DialogContent>
         {/* Existing Session Summary */}
-        <div className="bg-slate-50 rounded-xl p-4 space-y-3">
-          <div className="flex items-center gap-2 text-slate-900 font-medium">
-            <FileSpreadsheet className="h-4 w-4 text-primary-600" />
+        <div className="bg-slate-50 dark:bg-slate-700/50 rounded-xl p-4 space-y-3">
+          <div className="flex items-center gap-2 text-slate-900 dark:text-slate-100 font-medium">
+            <FileSpreadsheet className="h-4 w-4 text-primary-600 dark:text-primary-400" />
             <span>Segment: {segment.name || 'Unnamed'}</span>
           </div>
 
           <div className="grid grid-cols-2 gap-3 text-sm">
             {/* PD Curve Status */}
             <div className="flex items-center gap-2">
-              <TrendingDown className={`h-4 w-4 ${hasPD ? 'text-success-600' : 'text-slate-400'}`} />
-              <span className="text-slate-600">
+              <TrendingDown className={`h-4 w-4 ${hasPD ? 'text-success-600 dark:text-success-400' : 'text-slate-400'}`} />
+              <span className="text-slate-600 dark:text-slate-300">
                 PD Curve: {hasPD ? `${segment.pdCurve!.periods.length} periods` : 'Not set'}
               </span>
             </div>
 
             {/* LGD Curve Status */}
             <div className="flex items-center gap-2">
-              <TrendingUp className={`h-4 w-4 ${hasLGD ? 'text-success-600' : 'text-slate-400'}`} />
-              <span className="text-slate-600">
+              <TrendingUp className={`h-4 w-4 ${hasLGD ? 'text-success-600 dark:text-success-400' : 'text-slate-400'}`} />
+              <span className="text-slate-600 dark:text-slate-300">
                 LGD Curve: {hasLGD ? `${segment.lgdCurve!.periods.length} periods` : 'Not set'}
               </span>
             </div>
 
             {/* Loan Count */}
             <div className="flex items-center gap-2">
-              <span className="text-slate-600">
+              <span className="text-slate-600 dark:text-slate-300">
                 Loans: {loanCount}
               </span>
             </div>
 
             {/* Results Count */}
             <div className="flex items-center gap-2">
-              <span className="text-slate-600">
+              <span className="text-slate-600 dark:text-slate-300">
                 Results: {resultCount}
               </span>
             </div>
           </div>
 
           {segment.updatedAt && (
-            <div className="text-xs text-slate-500 pt-2 border-t border-slate-200">
+            <div className="text-xs text-slate-500 dark:text-slate-400 pt-2 border-t border-slate-200 dark:border-slate-600">
               Last updated: {format(new Date(segment.updatedAt), 'MMM d, yyyy h:mm a')}
             </div>
           )}

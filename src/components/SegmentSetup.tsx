@@ -131,8 +131,8 @@ export function SegmentSetup() {
   ) => {
     if (!curve || !curve.periods?.length) {
       return (
-        <div className="text-center py-8 text-slate-500">
-          <FileSpreadsheet className="w-12 h-12 mx-auto mb-3 text-slate-300" />
+        <div className="text-center py-8 text-slate-500 dark:text-slate-400">
+          <FileSpreadsheet className="w-12 h-12 mx-auto mb-3 text-slate-300 dark:text-slate-600" />
           <p>No {type} forecast data</p>
           <p className="text-sm">Upload an image to extract forecast data</p>
         </div>
@@ -148,7 +148,7 @@ export function SegmentSetup() {
             ) : (
               <TrendingUp className="w-4 h-4 text-warning-500" />
             )}
-            <span className="text-sm font-medium text-slate-700">
+            <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
               {curve.periods.length} periods extracted
             </span>
           </div>
@@ -170,33 +170,33 @@ export function SegmentSetup() {
           </Badge>
         </div>
 
-        <div className="max-h-64 overflow-y-auto rounded-lg border border-slate-200">
-          <table className="min-w-full divide-y divide-slate-200">
-            <thead className="bg-slate-50 sticky top-0">
+        <div className="max-h-64 overflow-y-auto rounded-lg border border-slate-200 dark:border-slate-700">
+          <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+            <thead className="bg-slate-50 dark:bg-slate-800 sticky top-0">
               <tr>
-                <th className="px-3 py-2 text-left text-xs font-semibold text-slate-600">
+                <th className="px-3 py-2 text-left text-xs font-semibold text-slate-600 dark:text-slate-300">
                   Start Date
                 </th>
-                <th className="px-3 py-2 text-left text-xs font-semibold text-slate-600">
+                <th className="px-3 py-2 text-left text-xs font-semibold text-slate-600 dark:text-slate-300">
                   End Date
                 </th>
-                <th className="px-3 py-2 text-right text-xs font-semibold text-slate-600">
+                <th className="px-3 py-2 text-right text-xs font-semibold text-slate-600 dark:text-slate-300">
                   Rate
                 </th>
-                <th className="px-3 py-2 text-center text-xs font-semibold text-slate-600">
+                <th className="px-3 py-2 text-center text-xs font-semibold text-slate-600 dark:text-slate-300">
                   Conf.
                 </th>
-                <th className="px-3 py-2 text-center text-xs font-semibold text-slate-600 w-16">
+                <th className="px-3 py-2 text-center text-xs font-semibold text-slate-600 dark:text-slate-300 w-16">
                   Edit
                 </th>
               </tr>
             </thead>
-            <tbody className="bg-white divide-y divide-slate-100">
+            <tbody className="bg-white dark:bg-slate-800/50 divide-y divide-slate-100 dark:divide-slate-700">
               {curve.periods.map((period, idx) => (
                 <tr
                   key={idx}
                   className={
-                    period.confidence < 0.8 ? 'bg-warning-50' : undefined
+                    period.confidence < 0.8 ? 'bg-warning-50 dark:bg-warning-950/30' : undefined
                   }
                 >
                   {editing === idx ? (
@@ -204,7 +204,7 @@ export function SegmentSetup() {
                       <td className="px-3 py-1.5">
                         <input
                           type="date"
-                          className="w-full text-xs px-2 py-1 border rounded"
+                          className="w-full text-xs px-2 py-1 border rounded bg-white dark:bg-slate-700 dark:border-slate-600 dark:text-slate-100"
                           value={
                             editValues.startDate
                               ? new Date(editValues.startDate)
@@ -225,7 +225,7 @@ export function SegmentSetup() {
                       <td className="px-3 py-1.5">
                         <input
                           type="date"
-                          className="w-full text-xs px-2 py-1 border rounded"
+                          className="w-full text-xs px-2 py-1 border rounded bg-white dark:bg-slate-700 dark:border-slate-600 dark:text-slate-100"
                           value={
                             editValues.endDate
                               ? new Date(editValues.endDate)
@@ -247,7 +247,7 @@ export function SegmentSetup() {
                         <input
                           type="number"
                           step="0.0001"
-                          className="w-full text-xs px-2 py-1 border rounded text-right"
+                          className="w-full text-xs px-2 py-1 border rounded text-right bg-white dark:bg-slate-700 dark:border-slate-600 dark:text-slate-100"
                           value={
                             (editValues.rateDecimal ?? period.rateDecimal) * 100
                           }
@@ -259,7 +259,7 @@ export function SegmentSetup() {
                           }
                         />
                       </td>
-                      <td className="px-3 py-1.5 text-center">-</td>
+                      <td className="px-3 py-1.5 text-center dark:text-slate-400">-</td>
                       <td className="px-3 py-1.5">
                         <div className="flex items-center justify-center gap-1">
                           <button
@@ -271,7 +271,7 @@ export function SegmentSetup() {
                               setEditing(null);
                               setEditValues({});
                             }}
-                            className="p-1 text-accent-600 hover:bg-accent-50 rounded"
+                            className="p-1 text-accent-600 hover:bg-accent-50 dark:hover:bg-accent-900/30 rounded"
                           >
                             <Save className="w-3.5 h-3.5" />
                           </button>
@@ -280,7 +280,7 @@ export function SegmentSetup() {
                               setEditing(null);
                               setEditValues({});
                             }}
-                            className="p-1 text-slate-400 hover:bg-slate-100 rounded"
+                            className="p-1 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded"
                           >
                             <X className="w-3.5 h-3.5" />
                           </button>
@@ -289,13 +289,13 @@ export function SegmentSetup() {
                     </>
                   ) : (
                     <>
-                      <td className="px-3 py-1.5 text-xs text-slate-900">
+                      <td className="px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100">
                         {formatDate(period.startDate)}
                       </td>
-                      <td className="px-3 py-1.5 text-xs text-slate-900">
+                      <td className="px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100">
                         {formatDate(period.endDate)}
                       </td>
-                      <td className="px-3 py-1.5 text-xs text-slate-900 text-right font-mono">
+                      <td className="px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 text-right font-mono">
                         {formatPercent(period.rateDecimal, 4)}
                       </td>
                       <td className="px-3 py-1.5 text-center">
@@ -315,7 +315,7 @@ export function SegmentSetup() {
                               rateDecimal: period.rateDecimal,
                             });
                           }}
-                          className="p-1 text-slate-400 hover:text-primary-600 hover:bg-primary-50 rounded mx-auto block"
+                          className="p-1 text-slate-400 hover:text-primary-600 hover:bg-primary-50 dark:hover:bg-primary-900/30 rounded mx-auto block"
                         >
                           <Edit2 className="w-3.5 h-3.5" />
                         </button>
@@ -334,11 +334,11 @@ export function SegmentSetup() {
   // If no segment exists yet, show creation form
   if (!currentSegment) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-primary-50 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-primary-50 dark:from-slate-900 dark:to-slate-800 flex items-center justify-center p-4">
         <Card variant="elevated" className="w-full max-w-md animate-fade-in">
           <CardHeader className="text-center pb-6">
-            <div className="w-16 h-16 bg-primary-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
-              <FileSpreadsheet className="w-8 h-8 text-primary-600" />
+            <div className="w-16 h-16 bg-primary-100 dark:bg-primary-900/50 rounded-2xl flex items-center justify-center mx-auto mb-4">
+              <FileSpreadsheet className="w-8 h-8 text-primary-600 dark:text-primary-400" />
             </div>
             <CardTitle className="text-2xl">CECL DCF Testing</CardTitle>
             <CardDescription>
@@ -369,13 +369,13 @@ export function SegmentSetup() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-primary-50 p-4 md:p-8">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-primary-50 dark:from-slate-900 dark:to-slate-800 p-4 md:p-8">
       <div className="max-w-6xl mx-auto space-y-6 animate-fade-in">
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-slate-900">Segment Setup</h1>
-            <p className="text-slate-500 mt-1">
+            <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Segment Setup</h1>
+            <p className="text-slate-500 dark:text-slate-400 mt-1">
               Configure PD and LGD forecasts for your loan segment
             </p>
           </div>
@@ -388,15 +388,15 @@ export function SegmentSetup() {
 
         {/* Error Alert */}
         {error && (
-          <div className="bg-danger-50 border border-danger-200 rounded-lg p-4 flex items-start gap-3">
+          <div className="bg-danger-50 dark:bg-danger-950/50 border border-danger-200 dark:border-danger-800 rounded-lg p-4 flex items-start gap-3">
             <AlertTriangle className="w-5 h-5 text-danger-500 flex-shrink-0 mt-0.5" />
             <div>
-              <p className="font-medium text-danger-800">Error</p>
-              <p className="text-sm text-danger-700">{error}</p>
+              <p className="font-medium text-danger-800 dark:text-danger-200">Error</p>
+              <p className="text-sm text-danger-700 dark:text-danger-300">{error}</p>
             </div>
             <button
               onClick={() => setError(null)}
-              className="ml-auto text-danger-400 hover:text-danger-600"
+              className="ml-auto text-danger-400 hover:text-danger-600 dark:hover:text-danger-300"
             >
               <X className="w-5 h-5" />
             </button>
@@ -428,8 +428,8 @@ export function SegmentSetup() {
           <Card variant="elevated">
             <CardHeader className="pb-4">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-danger-100 rounded-lg flex items-center justify-center">
-                  <TrendingDown className="w-5 h-5 text-danger-600" />
+                <div className="w-10 h-10 bg-danger-100 dark:bg-danger-900/50 rounded-lg flex items-center justify-center">
+                  <TrendingDown className="w-5 h-5 text-danger-600 dark:text-danger-400" />
                 </div>
                 <div>
                   <CardTitle>PD Forecast</CardTitle>
@@ -446,7 +446,7 @@ export function SegmentSetup() {
                 disabled={isExtracting}
               />
               {isExtracting && !currentSegment.pdCurve && (
-                <div className="flex items-center justify-center py-4 text-primary-600">
+                <div className="flex items-center justify-center py-4 text-primary-600 dark:text-primary-400">
                   <div className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin mr-2" />
                   Extracting PD data...
                 </div>
@@ -467,8 +467,8 @@ export function SegmentSetup() {
           <Card variant="elevated">
             <CardHeader className="pb-4">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-warning-100 rounded-lg flex items-center justify-center">
-                  <TrendingUp className="w-5 h-5 text-warning-600" />
+                <div className="w-10 h-10 bg-warning-100 dark:bg-warning-900/50 rounded-lg flex items-center justify-center">
+                  <TrendingUp className="w-5 h-5 text-warning-600 dark:text-warning-400" />
                 </div>
                 <div>
                   <CardTitle>LGD Forecast</CardTitle>
@@ -485,7 +485,7 @@ export function SegmentSetup() {
                 disabled={isExtracting}
               />
               {isExtracting && !currentSegment.lgdCurve && (
-                <div className="flex items-center justify-center py-4 text-primary-600">
+                <div className="flex items-center justify-center py-4 text-primary-600 dark:text-primary-400">
                   <div className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin mr-2" />
                   Extracting LGD data...
                 </div>
@@ -516,7 +516,7 @@ export function SegmentSetup() {
         </div>
 
         {!canProceed && (
-          <p className="text-sm text-slate-500 text-right">
+          <p className="text-sm text-slate-500 dark:text-slate-400 text-right">
             Please upload and verify both PD and LGD forecasts to continue
           </p>
         )}
