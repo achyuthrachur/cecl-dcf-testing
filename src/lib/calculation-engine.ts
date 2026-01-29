@@ -655,17 +655,17 @@ export function normalizeRateToDecimal(rate: number, fieldName: string = 'rate')
  *
  * Two conversion methods are supported:
  *
- * 1. COMPOUND METHOD (mathematically correct):
- *    monthly_rate = 1 - (1 - period_rate)^(1/n)
- *    Where n is the number of months in the source period:
- *    - quarterly: n = 3
- *    - annual: n = 12
+ * 1. COMPOUND METHOD (Excel/Abrigo approach - DEFAULT):
+ *    monthly_rate = 1 - (1 - annual_rate)^(1/12)
+ *    Excel formula: =ROUND(1-(1-rate)^(1/12),6)
  *
- * 2. SIMPLE METHOD (Excel/Abrigo approach):
+ *    IMPORTANT: In Abrigo, "quarterly" rates are actually ANNUALIZED rates
+ *    bucketed by quarter. They are NOT per-quarter rates. The conversion
+ *    always uses 1/12 power regardless of the bucket period.
+ *
+ * 2. SIMPLE METHOD (divide by 12):
  *    monthly_rate = annual_rate / 12
- *    This treats "quarterly" rates as ANNUALIZED rates (not per-quarter).
- *    Excel divides all rates by 12 regardless of whether they're labeled
- *    "quarterly" or "annual".
+ *    Only use this for specific cases where simple division is required.
  *
  * IMPORTANT: This conversion is for PD, Prepay, and Curtailment rates ONLY.
  * LGD is NOT a periodic rate - it's the loss percentage at default - so it
@@ -673,13 +673,13 @@ export function normalizeRateToDecimal(rate: number, fieldName: string = 'rate')
  *
  * @param rate - The rate in decimal form (e.g., 0.005449 for 0.5449%)
  * @param ratePeriod - The time period the rate represents
- * @param conversionMethod - 'simple' (Excel/Abrigo) or 'compound' (mathematically correct)
+ * @param conversionMethod - 'compound' (Excel/Abrigo - default) or 'simple' (divide by 12)
  * @returns The equivalent monthly rate
  */
 export function convertRateToMonthly(
   rate: number,
   ratePeriod: RatePeriod,
-  conversionMethod: RateConversionMethod = 'simple'
+  conversionMethod: RateConversionMethod = 'compound'
 ): number {
   if (rate === 0 || rate === undefined || rate === null) {
     return 0;
@@ -690,31 +690,21 @@ export function convertRateToMonthly(
     return rate;
   }
 
-  // SIMPLE METHOD: Divide by 12
-  // Use this only when rates are true periodic rates that should be divided
-  if (conversionMethod === 'simple') {
-    return roundTo6Decimals(rate / 12);
-  }
-
-  // COMPOUND METHOD: Excel/Abrigo approach
+  // COMPOUND METHOD: Excel/Abrigo approach (DEFAULT)
   // The quarterly rates in forecasts are actually ANNUALIZED rates bucketed by quarter
   // Excel formula: =ROUND(1-(1-rate)^(1/12),6)
   // This converts annualized rate to monthly using compound formula
-  switch (ratePeriod) {
-    case 'quarterly':
-      // Quarterly rates are annualized - convert to monthly: 1 - (1 - rate)^(1/12)
-      // Example: 0.6279% annualized → 0.0525% monthly
-      return roundTo6Decimals(1 - Math.pow(1 - rate, 1 / 12));
-
-    case 'annual':
-      // Convert annual to monthly: 1 - (1 - annual_rate)^(1/12)
-      // Example: 2.2% annual → 0.185% monthly
-      return roundTo6Decimals(1 - Math.pow(1 - rate, 1 / 12));
-
-    default:
-      // Default to compound conversion assuming annualized rate
-      return roundTo6Decimals(1 - Math.pow(1 - rate, 1 / 12));
+  if (conversionMethod === 'compound') {
+    // All rate periods (quarterly, annual) use the same 1/12 power
+    // because "quarterly" rates in Abrigo are annualized, not per-quarter
+    // Example: Q1 PD 0.5449% → Monthly 0.0455%
+    return roundTo6Decimals(1 - Math.pow(1 - rate, 1 / 12));
   }
+
+  // SIMPLE METHOD: Divide by 12
+  // Only use for specific cases where simple division is required
+  // This is NOT the Excel/Abrigo method
+  return roundTo6Decimals(rate / 12);
 }
 
 /**
@@ -805,12 +795,13 @@ export function calculateDCF(
   }
 
   // Log the rate period and conversion method being used for PD conversion
+  // DEFAULT: compound method matches Excel/Abrigo formula: =ROUND(1-(1-rate)^(1/12),6)
   const pdRatePeriod: RatePeriod = pdCurve.ratePeriod || 'quarterly';
-  const pdConversionMethod: RateConversionMethod = pdCurve.conversionMethod || 'simple';
+  const pdConversionMethod: RateConversionMethod = pdCurve.conversionMethod || 'compound';
 
   if (!pdCurve.ratePeriod) {
     warnings.push(
-      `PD rate period not specified - defaulting to "quarterly". ` +
+      `PD rate period not specified - defaulting to "quarterly" (annualized rates by quarter). ` +
       `If rates were extracted from monthly columns, set ratePeriod to "monthly" to avoid double-conversion.`
     );
   }
@@ -819,9 +810,9 @@ export function calculateDCF(
   if (pdRatePeriod === 'monthly') {
     warnings.push('PD rates are monthly - no conversion applied');
   } else {
-    const methodDesc = pdConversionMethod === 'simple'
-      ? `dividing by 12 (Excel/Abrigo method)`
-      : `compound formula 1-(1-rate)^(1/n)`;
+    const methodDesc = pdConversionMethod === 'compound'
+      ? `compound formula 1-(1-rate)^(1/12) (Excel/Abrigo method)`
+      : `dividing by 12 (simple method)`;
     warnings.push(`PD rates are ${pdRatePeriod} - converting to monthly by ${methodDesc}`);
   }
 
@@ -877,13 +868,36 @@ export function calculateDCF(
   // Generate schedule dates for the full schedule (including recovery tail)
   const scheduleDates = generateScheduleDates(calculationDate, totalPeriods);
 
-  // Get SMM rate (SMM preferred over CPR) - use normalized values
+  // Get SMM rate - ALWAYS calculate from CPR when available for precision
   // Per Excel formula: SMM = ROUND(1 - (1 - CPR)^(1/12), 6)
-  const smm = normalizedSmm > 0
-    ? normalizedSmm
-    : normalizedCpr > 0
-      ? roundTo6Decimals(1 - Math.pow(1 - normalizedCpr, 1 / 12))
-      : 0;
+  //
+  // IMPORTANT: CPR is the source of truth. The SMM displayed in Abrigo is often
+  // rounded for display (e.g., 0.29% instead of 0.2853%). Always calculate
+  // SMM from CPR to maintain precision. Only use extracted SMM as fallback
+  // when CPR is not available.
+  let smm: number;
+  if (normalizedCpr > 0) {
+    // Calculate SMM from CPR (preferred - maintains precision)
+    smm = roundTo6Decimals(1 - Math.pow(1 - normalizedCpr, 1 / 12));
+
+    // Warn if extracted SMM differs significantly from calculated
+    if (normalizedSmm > 0) {
+      const smmDiff = Math.abs(smm - normalizedSmm);
+      const smmDiffPercent = (smmDiff / smm) * 100;
+      if (smmDiffPercent > 1) {
+        warnings.push(
+          `Extracted SMM (${(normalizedSmm * 100).toFixed(4)}%) differs from CPR-derived SMM (${(smm * 100).toFixed(4)}%). ` +
+          `Using CPR-derived value for precision. Difference: ${smmDiffPercent.toFixed(2)}%`
+        );
+      }
+    }
+  } else if (normalizedSmm > 0) {
+    // Fallback to extracted SMM only when CPR not available
+    smm = normalizedSmm;
+    warnings.push('Using extracted SMM directly (CPR not available). Verify SMM precision.');
+  } else {
+    smm = 0;
+  }
 
   // Initialize tracking variables
   let balance = loan.bookBalance;

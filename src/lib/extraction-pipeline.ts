@@ -257,21 +257,25 @@ Extract all available fields. For each field, convert to the appropriate format:
 - Book Balance: number (remove $ and commas, preserve sign)
 - Unamortized Amount: number (remove $ and commas, PRESERVE NEGATIVE SIGN if present - this is often negative)
 - Calculation Date: ISO date format (YYYY-MM-DD)
-- Interest Rate: decimal (convert 5.25% to 0.0525)
-- Effective Yield: decimal (convert percentages to decimal)
+- Interest Rate: decimal with FULL PRECISION (e.g., 7.0500% becomes 0.0705, preserve all decimal places shown)
+- Effective Yield: decimal with FULL PRECISION (e.g., 7.4312% becomes 0.074312 - CRITICAL: preserve ALL decimal places, do not round)
 - Amortization Days: one of "Actual 360", "30/360", "Actual 365"
 - Payment Type: one of "Fixed Payment", "Fixed Principal", "Interest Only", "Line of Credit"
-- Payment Amount: number
+- Payment Amount: number with 2 decimal places
 - Payment Frequency: one of "Monthly", "Quarterly", "Semi-Annual", "Annual"
 - Maturity Date: ISO date format
 - Periods: number (number of remaining periods)
-- CPR: decimal (Conditional Prepayment Rate, convert percentage to decimal)
-- Curtailment Rate: decimal
-- SMM: decimal (Single Monthly Mortality)
+- CPR: decimal with FULL PRECISION (Conditional Prepayment Rate - CRITICAL: preserve all decimal places, e.g., 3.37% becomes 0.0337)
+- Curtailment Rate: decimal with FULL PRECISION
+- SMM: decimal (Single Monthly Mortality - note: this is often a rounded display value, CPR is more reliable)
 - Recovery Delay: number (months)
 - Present Value: number (actual present value from system)
 - Reserve $: number (actual reserve amount from system)
 - Reserve %: decimal (actual reserve percentage)
+
+CRITICAL PRECISION NOTE: For Interest Rate, Effective Yield, CPR, and Curtailment Rate, extract ALL visible decimal places.
+These rates are used in compound calculations over many periods, so even 0.01% difference matters significantly.
+If the display shows "7.43%", but another field or tooltip shows "7.4312%", use the more precise value.
 
 Also look for these alternative field names:
 - "Amortized Cost Basis" may relate to Book Balance

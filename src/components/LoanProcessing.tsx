@@ -279,7 +279,7 @@ export function LoanProcessing() {
                         field.type === 'date' && value
                           ? new Date(value as Date).toISOString().split('T')[0]
                           : field.type === 'percent' && value
-                            ? Number(((value as number) * 100).toFixed(4))
+                            ? Number(((value as number) * 100).toFixed(6))
                             : String(value ?? '')
                       }
                       onChange={(e) => {
