@@ -96,34 +96,40 @@ export function Dropzone({
     onFileRemoved?.();
   }, [previewUrl, onFileRemoved]);
 
-  // Global paste listener - works anywhere on the page without clicking
+  // Global paste listener - works anywhere on the page
+  // Captures image pastes even when input fields are focused
   useEffect(() => {
     if (disabled || file) return;
 
     const handleGlobalPaste = (event: ClipboardEvent) => {
-      const target = event.target as HTMLElement;
-      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
-        return;
-      }
-
       const items = event.clipboardData?.items;
       if (!items) return;
 
+      // Check if clipboard contains an image
+      let imageItem: DataTransferItem | null = null;
       for (let i = 0; i < items.length; i++) {
-        const item = items[i];
-        if (item.type.startsWith('image/')) {
-          event.preventDefault();
-          const pastedFile = item.getAsFile();
-          if (pastedFile) {
-            processFile(pastedFile);
-          }
-          return;
+        if (items[i].type.startsWith('image/')) {
+          imageItem = items[i];
+          break;
         }
+      }
+
+      // If no image in clipboard, let the default paste behavior happen
+      if (!imageItem) return;
+
+      // We have an image - process it regardless of focus
+      event.preventDefault();
+      event.stopPropagation();
+
+      const pastedFile = imageItem.getAsFile();
+      if (pastedFile) {
+        processFile(pastedFile);
       }
     };
 
-    document.addEventListener('paste', handleGlobalPaste);
-    return () => document.removeEventListener('paste', handleGlobalPaste);
+    // Use capture phase to get the event before other handlers
+    document.addEventListener('paste', handleGlobalPaste, { capture: true });
+    return () => document.removeEventListener('paste', handleGlobalPaste, { capture: true });
   }, [disabled, file, processFile]);
 
   const { getRootProps, getInputProps, isDragActive, isDragReject } =
