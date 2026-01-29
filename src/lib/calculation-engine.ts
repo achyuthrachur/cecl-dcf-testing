@@ -108,7 +108,7 @@ export function getMaturityPeriod(calculationDate: Date, maturityDate: Date): nu
 }
 
 /**
- * Get the number of days in a period for Actual/360 calculation
+ * Get the number of days in a period for interest calculation
  * Uses UTC-based calculation to avoid timezone issues
  */
 export function getDaysInPeriod(
@@ -119,7 +119,7 @@ export function getDaysInPeriod(
   if (amortizationDays === 'Actual 360' || amortizationDays === 'Actual 365') {
     return differenceInDaysUTC(periodEnd, periodStart);
   }
-  // 30/360 convention
+  // 30/360 and "360 Days" conventions - each month is treated as 30 days
   return 30;
 }
 
@@ -200,35 +200,65 @@ export function getForecastRate(
 
 /**
  * Get the amortization multiplier based on day count convention
- * Per Excel: AmortizationMultiplier = IF(AmortizationDays contains "360", 365/360, 1)
+ * Per Excel: AmortizationMultiplier = IF(ISNUMBER(SEARCH("360",C7)),365/360,1)
+ *
+ * Any convention with "360" in the name uses the 365/360 multiplier.
+ * This accounts for the difference between a 360-day year (used in rate quoting)
+ * and a 365-day year (actual calendar days).
+ *
+ * - "Actual 360" → 365/360 (counts actual days, divides by 360)
+ * - "30/360" → 365/360 (30-day months, 360-day year, but rate adjustment needed)
+ * - "360 Days" → 365/360 (same as 30/360)
+ * - "Actual 365" → 1 (no adjustment needed)
  */
 export function getAmortizationMultiplier(amortizationDays: AmortizationDays): number {
-  if (amortizationDays === 'Actual 360') {
+  // Per Excel: IF(ISNUMBER(SEARCH("360",C7)),365/360,1)
+  // Any convention containing "360" uses the multiplier
+  if (amortizationDays === 'Actual 360' ||
+      amortizationDays === '30/360' ||
+      amortizationDays === '360 Days') {
     return 365 / 360;
   }
+  // 'Actual 365' doesn't need the multiplier
   return 1;
 }
 
 /**
  * Calculate monthly interest rate based on amortization days convention
- * Per Excel: InterestRate × AmortizationMultiplier × IF(SEARCH("Actual", AmortizationDays), DaysInMonth/365, 1/12)
+ * Per Excel formula (Column T):
+ *   =InterestRate × AmortizationMultiplier × IF(ISNUMBER(SEARCH("Actual",C7)),DaysInMonth/365,1/12)
+ *
+ * Where AmortizationMultiplier = IF(ISNUMBER(SEARCH("360",C7)),365/360,1)
+ *
+ * This gives us:
+ * - Actual 360: rate × (365/360) × (days/365) = rate × days / 360
+ * - Actual 365: rate × 1 × (days/365) = rate × days / 365
+ * - 30/360:     rate × (365/360) × (1/12)
+ * - 360 Days:   rate × (365/360) × (1/12)
  */
 export function calculateMonthlyInterestRate(
   annualRate: number,
   daysInMonth: number,
   amortizationDays: AmortizationDays
 ): number {
-  // Use direct formulas to minimize floating-point intermediate calculations
   switch (amortizationDays) {
     case 'Actual 360':
-      // Direct formula: Rate × Days / 360
+      // rate × (365/360) × (days/365) simplifies to: rate × days / 360
       return annualRate * daysInMonth / 360;
+
     case 'Actual 365':
-      // Direct formula: Rate × Days / 365
+      // rate × 1 × (days/365) = rate × days / 365
       return annualRate * daysInMonth / 365;
+
     case '30/360':
+    case '360 Days':
+      // rate × (365/360) × (1/12)
+      // The 365/360 multiplier accounts for the difference between the
+      // 360-day year used in rate quoting and the actual 365-day year
+      return annualRate * (365 / 360) / 12;
+
     default:
-      // Direct formula: Rate / 12
+      // Default to simple monthly
       return annualRate / 12;
   }
 }
@@ -585,7 +615,7 @@ export function calculateRecovery(
  *
  * Key difference:
  * - For "Actual" day count conventions: Use cumulative days / 365
- * - For 30/360 convention: Use period number / 12 (period-based discounting)
+ * - For 30/360 and "360 Days" conventions: Use period number / 12 (period-based discounting)
  */
 export function calculateDiscountFactor(
   effectiveYield: number,
@@ -595,8 +625,8 @@ export function calculateDiscountFactor(
 ): number {
   let exponent: number;
 
-  if (amortizationDays === '30/360') {
-    // For 30/360: Use period-based discounting (Period / 12)
+  if (amortizationDays === '30/360' || amortizationDays === '360 Days') {
+    // For 30/360 and 360 Days: Use period-based discounting (Period / 12)
     exponent = period / 12;
   } else {
     // For Actual 360 and Actual 365: Use calendar days / 365
@@ -838,31 +868,25 @@ export function calculateDCF(
   const curtailmentRate = curtailmentNorm.value;
 
   // ============================================================================
-  // PERIOD DERIVATION FROM MATURITY DATE (Key fix for Excel matching)
+  // PERIOD CALCULATION (Use input periods directly for Abrigo matching)
   // ============================================================================
   const calculationDate = new Date(loan.calculationDate);
   const maturityDate = new Date(loan.maturityDate);
 
-  // Derive the contractual maturity period from maturityDate
-  // This is the period when the balloon payment occurs (if any)
-  const contractualPeriods = getMaturityPeriod(calculationDate, maturityDate);
+  // Use input periods directly - Abrigo provides total periods including recovery tail
+  // Formula: totalPeriods = contractualPeriods + recoveryDelay - 1
+  // Therefore: contractualPeriods = totalPeriods - recoveryDelay + 1
+  const totalPeriods = loan.periods;
+  const contractualPeriods = totalPeriods - Math.max(0, loan.recoveryDelay - 1);
 
-  // Total periods = contractual periods + recovery delay tail
-  // The tail allows delayed recoveries to be released after maturity
-  // recoveryDelay - 1 because the first recovery can occur in the last contractual period
-  const totalPeriods = contractualPeriods + Math.max(0, loan.recoveryDelay - 1);
-
-  // Check if loan.periods differs from derived values and warn
-  const periodsOverridden = loan.periods !== contractualPeriods;
+  // Optionally verify against maturity date and warn if significantly different
+  const derivedFromMaturity = getMaturityPeriod(calculationDate, maturityDate);
+  const periodsOverridden = Math.abs(contractualPeriods - derivedFromMaturity) > 2;
   if (periodsOverridden) {
-    const expectedWithTail = contractualPeriods + Math.max(0, loan.recoveryDelay - 1);
-    if (Math.abs(loan.periods - expectedWithTail) > 1) {
-      warnings.push(
-        `Input periods (${loan.periods}) differs from derived value. ` +
-        `Maturity-based contractual periods: ${contractualPeriods}, ` +
-        `total with recovery tail: ${totalPeriods}. Using derived values.`
-      );
-    }
+    warnings.push(
+      `Contractual periods (${contractualPeriods}) from input differs from maturity-derived (${derivedFromMaturity}). ` +
+      `Using input-based value for Abrigo matching.`
+    );
   }
 
   // Generate schedule dates for the full schedule (including recovery tail)
@@ -934,6 +958,16 @@ export function calculateDCF(
   let reamortizationApplied = false;
   let reamortPaymentUsed = 0;
   let remainingAmortPeriodsUsed = 0;
+  let initialPaymentFromReamort = 0;
+
+  // Calculate what the initial reamortized payment would be for period 1 (for debug comparison)
+  if (loan.reamortize && effectiveAmortTerm && effectiveAmortTerm > 0) {
+    initialPaymentFromReamort = calculateReamortizedPayment(
+      loan.bookBalance,
+      monthlyRateForPMT,
+      effectiveAmortTerm
+    );
+  }
 
   // Running NPV accumulator with full precision (to avoid rounding errors)
   let npvAccumulator = 0;
@@ -1018,11 +1052,17 @@ export function calculateDCF(
         if (remainingAmortPeriods > 0) {
           // Use monthlyRateForPMT which includes the amortization multiplier
           // This matches Excel's treatment of Actual/360 instruments
-          paymentAmountForPeriod = calculateReamortizedPayment(
+          const reamortizedPayment = calculateReamortizedPayment(
             balance,
             monthlyRateForPMT,
             remainingAmortPeriods
           );
+
+          // CAP the reamortized payment at the original payment amount
+          // This prevents over-estimating principal when the inferred amort term
+          // produces a higher payment than the original (which can happen due to
+          // rounding in the original amortization schedule)
+          paymentAmountForPeriod = Math.min(reamortizedPayment, loan.paymentAmount);
 
           // Track for debug info
           reamortizationApplied = true;
@@ -1261,6 +1301,7 @@ export function calculateDCF(
     monthlyRateForPMT,
     reamortPaymentUsed,
     remainingAmortPeriodsUsed,
+    initialPaymentFromReamort,
   };
 
   return {

@@ -208,22 +208,41 @@ describe('PMT Monthly Rate with Day Count Conventions', () => {
     expect(multiplier).toBeCloseTo(365 / 360, 6);
   });
 
-  test('30/360 uses multiplier of 1', () => {
+  test('30/360 uses 365/360 multiplier per Excel formula', () => {
+    // Per Excel: IF(ISNUMBER(SEARCH("360",C7)),365/360,1)
+    // "30/360" contains "360", so multiplier = 365/360
     const multiplier = getAmortizationMultiplier('30/360');
+    expect(multiplier).toBeCloseTo(365 / 360, 6);
+  });
+
+  test('360 Days uses 365/360 multiplier per Excel formula', () => {
+    // Per Excel: IF(ISNUMBER(SEARCH("360",C7)),365/360,1)
+    // "360 Days" contains "360", so multiplier = 365/360
+    const multiplier = getAmortizationMultiplier('360 Days');
+    expect(multiplier).toBeCloseTo(365 / 360, 6);
+  });
+
+  test('Actual 365 uses multiplier of 1', () => {
+    // "Actual 365" does NOT contain "360", so multiplier = 1
+    const multiplier = getAmortizationMultiplier('Actual 365');
     expect(multiplier).toBe(1);
   });
 
-  test('monthlyRateForPMT differs by factor 365/360 for Actual/360', () => {
+  test('all 360-based conventions use same multiplier', () => {
     const interestRate = 0.06; // 6%
 
-    // 30/360: monthlyRateForPMT = rate * 1 / 12
+    // All 360-based conventions use 365/360 multiplier
     const rate30360 = (interestRate * getAmortizationMultiplier('30/360')) / 12;
-
-    // Actual/360: monthlyRateForPMT = rate * (365/360) / 12
     const rateActual360 = (interestRate * getAmortizationMultiplier('Actual 360')) / 12;
+    const rate360Days = (interestRate * getAmortizationMultiplier('360 Days')) / 12;
 
-    // The ratio should be 365/360
-    expect(rateActual360 / rate30360).toBeCloseTo(365 / 360, 6);
+    // All three should be equal
+    expect(rate30360).toBeCloseTo(rateActual360, 10);
+    expect(rate30360).toBeCloseTo(rate360Days, 10);
+
+    // And they should all be rate * (365/360) / 12
+    const expectedRate = interestRate * (365 / 360) / 12;
+    expect(rate30360).toBeCloseTo(expectedRate, 10);
   });
 
   test('reamortization uses correct rate for Actual/360 loans', () => {
@@ -253,11 +272,15 @@ describe('PMT Monthly Rate with Day Count Conventions', () => {
 // ----------------------------------------------------------------------------
 
 describe('Maturity Period Payoff Ordering', () => {
+  // Note: periods must be totalPeriods = contractualPeriods + recoveryDelay - 1
+  // For a 6-month loan with 12-month recovery delay: periods = 6 + 12 - 1 = 17
+
   test('at maturity: prepayment === 0, defaultAmount === 0', () => {
     const loan = createBaseLoan({
-      periods: 6,
+      periods: 17, // 6 contractual + 11 recovery tail
       maturityDate: new Date('2025-12-31'), // 6 months from calc date
       cpr: 0.10, // 10% CPR to ensure prepayment would occur normally
+      recoveryDelay: 12,
     });
 
     const pdCurve = createPDCurve();
@@ -280,8 +303,9 @@ describe('Maturity Period Payoff Ordering', () => {
 
   test('at maturity: scheduledPrincipal === beginningBalance', () => {
     const loan = createBaseLoan({
-      periods: 6,
+      periods: 17, // 6 contractual + 11 recovery tail
       maturityDate: new Date('2025-12-31'),
+      recoveryDelay: 12,
     });
 
     const pdCurve = createPDCurve();
@@ -305,8 +329,9 @@ describe('Maturity Period Payoff Ordering', () => {
 
   test('at maturity: endingBalance === 0', () => {
     const loan = createBaseLoan({
-      periods: 6,
+      periods: 17, // 6 contractual + 11 recovery tail
       maturityDate: new Date('2025-12-31'),
+      recoveryDelay: 12,
     });
 
     const pdCurve = createPDCurve();
@@ -326,10 +351,11 @@ describe('Maturity Period Payoff Ordering', () => {
 
   test('non-maturity periods can have prepayment and default', () => {
     const loan = createBaseLoan({
-      periods: 6,
+      periods: 17, // 6 contractual + 11 recovery tail
       maturityDate: new Date('2025-12-31'),
       cpr: 0.10, // 10% CPR
       smm: 0.02, // 2% SMM to ensure prepayment
+      recoveryDelay: 12,
     });
 
     const pdCurve = createPDCurve();
@@ -477,8 +503,9 @@ describe('Edge Cases', () => {
   test('handles interest-only loans at maturity', () => {
     const loan = createBaseLoan({
       paymentType: 'Interest Only',
-      periods: 6,
+      periods: 17, // 6 contractual + 11 recovery tail
       maturityDate: new Date('2025-12-31'),
+      recoveryDelay: 12,
     });
 
     const pdCurve = createPDCurve();

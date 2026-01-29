@@ -86,7 +86,8 @@ export type PaymentFrequency =
 export type AmortizationDays =
   | 'Actual 360'
   | '30/360'
-  | 'Actual 365';
+  | 'Actual 365'
+  | '360 Days';
 
 export interface LoanInput {
   id: string;
@@ -210,6 +211,7 @@ export interface ScheduleDebugInfo {
   monthlyRateForPMT: number;            // The monthly rate used for PMT calculation
   reamortPaymentUsed: number;           // Last reamortized payment calculated
   remainingAmortPeriodsUsed: number;    // Last remaining amort periods used
+  initialPaymentFromReamort: number;    // Payment calculated at period 1 for comparison
 }
 
 export interface CalculationResult {
